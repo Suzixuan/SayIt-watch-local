@@ -1,0 +1,23 @@
+[env]
+# 中文 Windows 的 MSVC 默认用系统代码页(GBK)读源文件，而 transcribe.cpp 的
+# src/arch/canary/model.cpp 注释里有 UTF-8 的 ▁(U+2581)。按 GBK 解码时那三个
+# 字节会把换行一起吞掉，注释不闭合 → 几十条级联的 C2065/C3927/C4430。
+# CL 是 MSVC 认的"前置追加编译选项"环境变量，用它给所有 C/C++ 编译加 /utf-8，
+# 比改 CMAKE_CXX_FLAGS 安全（不会把 crate 自己设的 /EHsc -W0 冲掉）。
+CL = "/utf-8"
+
+# transcribe-cpp 的 vulkan feature 要靠 Vulkan SDK 编 SPIR-V shader，CMake 找的是
+# VULKAN_SDK。SDK 安装器把它写进 Machine 环境变量，但**已经在运行的 shell 继承的是
+# 旧环境块**，所以 `tauri dev` / `cargo build` 常常看不到它，报
+#   Could NOT find Vulkan (missing: Vulkan_LIBRARY Vulkan_INCLUDE_DIR glslc)
+# 写在这里当兜底：cargo 的 [env] 默认 **不覆盖**已存在的同名环境变量（force 缺省
+# 为 false），所以外部/CI 提供的 VULKAN_SDK 优先，这条只在缺失时生效。
+# 换 SDK 版本或换机器时改这一行即可（路径不存在时行为与没装 SDK 一致）。
+VULKAN_SDK = "C:\\VulkanSDK\\1.4.350.0"
+
+# 测试强制串行。真机模型测试（gguf_asr / local_asr / test_audio）共享同一个全局
+# 引擎（CACHE 互斥锁），并行跑时 A 测试的计时会把"等 B 测试推理完"算进去，
+# report_backend_and_rtf / first_transcribe_after_load_* 这类断言就会假失败，
+# 还会读到被别的测试 unload 后的 backend=None。串行的额外代价≈0：推理本来就被
+# 锁串行化了，纯逻辑测试又都在毫秒级。
+RUST_TEST_THREADS = "1"

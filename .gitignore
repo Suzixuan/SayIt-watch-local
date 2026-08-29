@@ -1,0 +1,74 @@
+# ── Secrets ──
+.env
+.env.*
+.env.local
+.env.*.local
+config.yaml
+_MIGRATION/
+*.pem
+
+# ── Development-only (not for open source) ──
+dev-docs/
+dev-scripts/
+dev-notes/
+we-media/
+sayit说话波形图效果.html
+
+# ── Server dev artifacts ──
+server/.kiro/
+server/.pytest_cache/
+server/.ruff_cache/
+server/docs/
+server/scripts/
+server/benchmarks/
+server/mytestwav.txt
+
+# ── Client dev artifacts ──
+client/scripts/*
+!client/scripts/check-i18n.mjs
+client/dist/
+# build.rs 从 transcribe-cpp 的构建产物拷进来的 DLL，纯生成物
+client/src-tauri/transcribe-libs/
+
+# ── Kiro IDE ──
+.kiro/
+
+# ── Node ──
+node_modules/
+
+# ── Rust build output ──
+target/
+
+# ── Python ──
+__pycache__/
+*.pyc
+.venv*/
+
+# ── OS ──
+.DS_Store
+Thumbs.db
+
+# ── IDE ──
+.vscode/
+.idea/
+
+# ── Tauri dev artifacts ──
+*.blockmap
+
+# ── Watch Transport local-only artifacts ──
+watch/.gradle/
+watch/**/build/
+watch/local.properties
+*.apk
+*.aab
+*.keystore
+*.jks
+received_watch.wav
+*.received_watch.tmp
+.watch-dev*
+SayIt_*_setup*.exe
+client/src-tauri/sayit-settings-*.json
+
+# ── Logs & runtime ──
+*.log
+runtime/

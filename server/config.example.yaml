@@ -1,0 +1,117 @@
+# =============================================================================
+# SayIt Configuration
+# =============================================================================
+# Secrets (API keys, passwords) → .env
+# Everything else → this file
+# =============================================================================
+
+server:
+  host: "127.0.0.1"                   # 本地自用：默认仅回环监听；对外提供服务再改 0.0.0.0
+  port: 8000
+  cors_origins:                      # Allowed CORS origins
+    - "*"                            # Default: allow all. Restrict in production.
+  # 访问令牌（Bearer）。设置后客户端必须在「服务器设置」填入同一令牌：
+  #   - /api/* 需 Authorization: Bearer <token>
+  #   - /ws/*   需 ?token=<token>
+  api_token: ""                      # 留空 = 不鉴权（仅回环部署时建议）
+  # 受信代理名单（IP 或 CIDR）。仅当直连地址命中该名单时，才采信 X-Forwarded-For /
+  # X-Real-IP 解析真实客户端 IP。默认空 = 从不信任代理头。
+  # 例如单层 ALB：trusted_proxies: ["10.0.0.0/8"]
+  trusted_proxies: []
+
+# HTTPS reverse proxy (when not using ALB/CDN)
+gateway:
+  host: "0.0.0.0"
+  port: 8443
+  backend_target: "http://127.0.0.1:8000"
+  tls_key_file: "certs/dev.key"
+  tls_cert_file: "certs/dev.crt"
+
+paths:
+  prompt_dir: "prompts"
+  releases_dir: "releases"
+
+# --- Speech Recognition ---
+asr:
+  engine: "qwen3"                    # qwen3 / firered
+  model: "Qwen/Qwen3-ASR-1.7B"
+  device: "cuda:0"
+  language: "Chinese"                # Chinese / English / Cantonese
+  itn: true                          # Inverse text normalization
+  vllm_gpu_util: 0.5
+  vllm_max_model_len: 16384
+  max_concurrency: 1
+  batch_max_size: 32
+  batch_wait_ms: 60
+  firered:                           # Only used when engine = "firered"
+    model_dir: "pretrained_models"
+
+vad:
+  model: "fsmn-vad"
+  max_single_segment_time: 30000     # ms
+
+# --- LLM Text Polishing ---
+# Define all available providers below, then choose which one to use
+# for desktop and web_demo. API keys go in .env file.
+llm:
+  desktop: "openai"                  # Provider for desktop client
+  web_demo: "groq"                   # Provider for web demo (empty = disabled)
+
+  providers:
+    azure:
+      deployment: "gpt-4o"
+      api_version: "2024-12-01-preview"
+      timeout_sec: 15
+    openai:
+      base_url: "https://api.openai.com"
+      model: "gpt-4o-mini"
+      timeout_sec: 15
+    groq:
+      base_url: "https://api.groq.com/openai"
+      model: "qwen/qwen3-32b"
+      timeout_sec: 15
+    ollama:
+      url: "http://127.0.0.1:11434/api/generate"
+      model: "qwen2.5:7b"
+      timeout_sec: 15
+
+# --- Landing Page ---
+public_site:
+  app_name: "SayIt"
+  headline: "随口说，出色写"
+  subheadline: "用说话代替打字，AI 实时把口语变成可以直接用的书面表达。"
+  download_label: "下载 Windows 客户端"
+  download_platform: "win32"
+  download_arch: "x64"
+
+# --- Browser Demo ---
+web_demo:
+  enabled: false                     # 本地自用：默认关闭匿名网页体验
+  max_duration_sec: 600              # Max recording length per session (sec)
+  max_concurrency_per_ip: 3
+
+# --- Admin Dashboard ---
+# 密码必须显式设置（.env 的 SAYIT_ADMIN_PASSWORD 或下方 password），否则视为未启用。
+admin:
+  enabled: true
+  username: "admin"
+  password: ""
+
+# --- Logging ---
+logging:
+  level: "INFO"                      # DEBUG / INFO / WARNING / ERROR
+  debug_asr: false                   # Log raw ASR input/output
+  debug_llm: false                   # Log raw LLM input/output
+  file: "runtime/logs/sayit.log"
+  retention_days: 14
+  slow_asr_ms: 5000                  # Warn when ASR takes longer
+  slow_llm_ms: 8000                  # Warn when LLM takes longer
+
+# --- Telemetry ---
+telemetry:
+  enabled: true
+  db: "sqlite"                       # sqlite / postgresql
+  db_path: "runtime/telemetry/sayit.sqlite3"
+  collect_window_title: true
+  collect_exe_path: true
+  node_id: "single-node-01"

@@ -1,0 +1,19 @@
+{
+  "id": "2026-07-16-manual-update",
+  "level": "warning",
+  "title": "请手动更新到最新版本",
+  "body": "由于旧版本的自动更新存在问题，请前往官网或 GitHub 下载安装最新版本，即可恢复正常的自动更新。",
+  "linkUrl": "https://sayitapp.site",
+  "linkLabel": "前往官网下载",
+  "translations": {
+    "en": {
+      "title": "Please update to the latest version",
+      "body": "Automatic updates do not work correctly in older versions. Download and install the latest version from the website or GitHub to restore automatic updates.",
+      "linkLabel": "Download from the website"
+    }
+  },
+  "maxVersion": "0.0.9",
+  "startAt": null,
+  "endAt": null,
+  "dismissible": true
+}

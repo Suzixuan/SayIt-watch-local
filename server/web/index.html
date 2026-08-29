@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SayIt — Just say it, and write well</title>
+  <meta name="description" content="Open-source voice typing for Windows with local, cloud API, and self-hosted modes. Turn speech into polished text in any app.">
+  <meta property="og:title" content="SayIt — Just say it, and write well">
+  <meta property="og:description" content="Open-source voice typing for Windows with local, cloud API, and self-hosted modes.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://sayitapp.site/">
+  <meta property="og:image" content="https://sayitapp.site/logo.png">
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="icon" type="image/png" sizes="48x48" href="/favicon-48.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link href="/fonts/nunito.css" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="shell">
+
+    <!-- Nav -->
+    <header class="nav">
+      <div class="brand">
+        <img class="brand-icon" src="/logo-72.png" alt="SayIt" width="48" height="48">
+        <strong class="brand-name" id="brandName">SayIt</strong>
+      </div>
+      <div class="nav-actions">
+        <button class="lang-toggle" id="languageToggle" type="button" aria-label="Switch to Chinese">中文</button>
+        <a class="nav-link" href="https://github.com/crosswk/SayIt" target="_blank" rel="noopener" id="navGithub" aria-label="GitHub">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+        </a>
+        <a class="btn-pill btn-black" id="navDlBtn" href="#download">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          <span data-i18n="nav.download">Download</span>
+        </a>
+      </div>
+    </header>
+
+    <!-- Hero -->
+    <section class="hero">
+      <h1 id="headline">Just say it, and write well</h1>
+      <p class="lead" id="subheadline">Turn speech into polished, ready-to-use text—three times faster than typing.</p>
+    </section>
+
+    <!-- Modes -->
+    <section class="modes">
+      <h2 class="section-heading" data-i18n="modes.title">Three modes. Your choice.</h2>
+      <div class="mode-grid">
+        <div class="mode-card">
+          <div class="mode-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          </div>
+          <strong data-i18n="modes.local.title">Local mode</strong>
+          <span data-i18n="modes.local.desc">Speech recognition runs on your device</span>
+        </div>
+        <div class="mode-card">
+          <div class="mode-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>
+          </div>
+          <strong data-i18n="modes.cloud.title">Cloud API mode</strong>
+          <span data-i18n="modes.cloud.desc">Use your own ASR and AI provider keys</span>
+        </div>
+        <div class="mode-card">
+          <div class="mode-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+          </div>
+          <strong data-i18n="modes.server.title">Server mode</strong>
+          <span data-i18n="modes.server.desc">Connect to a public or self-hosted SayIt backend</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Features — minimal text -->
+    <section class="features">
+      <div class="feature-row">
+        <div class="feature-item">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="9" y="1" width="6" height="12" rx="3"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><line x1="12" y1="23" x2="12" y2="19"/></svg>
+          <span data-i18n="features.anywhere">Press a shortcut, speak, and the text lands in any app</span>
+        </div>
+        <div class="feature-item">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 16l3-3m0 0l5-9 3 3-9 5-2 1 0 0z" stroke-linejoin="round"/></svg>
+          <span data-i18n="features.cleanup">AI cleanup turns rough speech into clean writing</span>
+        </div>
+        <div class="feature-item">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" stroke-linejoin="round"/></svg>
+          <span data-i18n="features.fast">Get polished text without breaking your flow</span>
+        </div>
+        <div class="feature-item">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" stroke-linejoin="round"/></svg>
+          <span data-i18n="features.rust">Lightweight and built with Rust</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Demo -->
+    <section class="demo-section" id="demo">
+      <h2 class="section-heading" data-i18n="demo.title">Try it online</h2>
+      <div class="card demo-card">
+        <div class="demo-inner">
+          <div class="orb-area">
+            <div class="orb-wrap">
+              <svg class="gooey-svg" id="gooeyBlob" viewBox="75 75 350 350">
+                <defs>
+                  <filter id="gooey" color-interpolation-filters="sRGB">
+                    <feGaussianBlur in="SourceGraphic" stdDeviation="18" result="blur"/>
+                    <feColorMatrix in="blur" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 25 -15" result="gooey" id="gooey-matrix"/>
+                    <feComposite in="SourceGraphic" in2="gooey" operator="atop"/>
+                  </filter>
+                  <mask id="waveform-mask">
+                    <rect x="75" y="75" width="350" height="350" fill="white"/>
+                    <g id="bars-group" fill="black"></g>
+                  </mask>
+                </defs>
+                <g filter="url(#gooey)" mask="url(#waveform-mask)">
+                  <g id="blob-group" fill="#1a1a1a">
+                    <circle cx="250" cy="250" r="110" id="center-core"></circle>
+                  </g>
+                </g>
+              </svg>
+            </div>
+          </div>
+          <div class="demo-controls">
+            <button class="rec-btn" id="recordButton" type="button" aria-label="Start recording" data-i18n-aria="demo.startAria">
+              <svg id="micIcon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="1" width="6" height="12" rx="3"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><line x1="12" y1="23" x2="12" y2="19"/></svg>
+              <svg id="stopIcon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="display:none"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
+            </button>
+            <div class="demo-meta">
+              <div class="timer" id="timer">00:00</div>
+              <div class="state"><span id="stateText">Ready</span><span class="state-dot" id="stateDot"></span></div>
+            </div>
+            <div class="rec-label" id="recordLabel">Click to start</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Playback bar -->
+    <section class="playback-section hidden" id="playbackSection">
+      <div class="card playback-card">
+        <div class="playback-row">
+          <button class="play-btn" id="playBtn" type="button" aria-label="Play" data-i18n-aria="playback.playAria">
+            <svg id="playIco" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            <svg id="pauseIco" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="display:none"><line x1="6" y1="4" x2="6" y2="20"/><line x1="18" y1="4" x2="18" y2="20"/></svg>
+          </button>
+          <div class="playback-track">
+            <div class="playback-labels"><span data-i18n="playback.label">Recording</span><span id="playTime">0:00 / 0:00</span></div>
+            <div class="track-bg"><div class="track-fill" id="trackFill"></div><div class="track-thumb" id="trackThumb"></div></div>
+            <input type="range" class="track-input" id="trackInput" min="0" max="1" step="0.001" value="0">
+          </div>
+          <div class="rate-btns" id="rateBtns">
+            <button class="rate-btn" data-rate="0.75">0.75x</button>
+            <button class="rate-btn active" data-rate="1">1x</button>
+            <button class="rate-btn" data-rate="1.5">1.5x</button>
+            <button class="rate-btn" data-rate="2">2x</button>
+            <button class="rate-btn" data-rate="2.5">2.5x</button>
+          </div>
+          <button class="icon-btn" id="dlAudioBtn" type="button" title="Download recording" data-i18n-title="playback.download">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Result (unified: primary text + details below) -->
+    <section class="result-section hidden" id="resultSection">
+      <div class="card result-card">
+        <div class="result-primary">
+          <div class="result-text" id="resultText" data-i18n="result.waiting">Waiting for a recording…</div>
+          <button class="icon-btn copy-btn" id="copyResult" type="button" data-tooltip="Copy text" data-i18n-tooltip="result.copy" aria-label="Copy text" data-i18n-aria="result.copy">
+            <svg class="ico-copy" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+            <svg class="ico-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          </button>
+        </div>
+        <div class="result-meta" id="resultMeta"></div>
+        <div class="result-details hidden" id="resultDetails">
+          <div class="result-detail-row">
+            <span class="detail-label" data-i18n="result.rawAsr">Raw transcript</span>
+            <div class="detail-text" id="asrText"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Clear -->
+    <div class="hidden" id="clearWrap" style="text-align:center">
+      <button class="btn-pill btn-white" id="clearBtn" type="button">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 105.64-11.36L1 10"/></svg>
+        <span data-i18n="result.recordAgain">Record again</span>
+      </button>
+    </div>
+
+    <!-- Open Source -->
+    <section class="oss-section" id="download">
+      <div class="card oss-card">
+        <div class="oss-inner">
+          <img class="oss-logo" src="/logo-72.png" alt="SayIt" width="40" height="40">
+          <div class="oss-text">
+            <strong data-i18n="oss.title">Open source · Self-hosted · Privacy first</strong>
+            <span data-i18n="oss.desc">AGPL-3.0 licensed, Docker-ready, and fully under your control.</span>
+          </div>
+          <div class="oss-actions">
+            <a class="btn-pill btn-black" id="dlBtn" href="#download">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              <span id="dlLabel">Windows</span>
+            </a>
+            <a class="btn-pill btn-white" href="https://github.com/crosswk/SayIt" target="_blank" rel="noopener">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+              <span>GitHub</span>
+            </a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <div class="footer-row">
+        <div class="footer-brand">
+          <img src="/logo-72.png" alt="SayIt" width="20" height="20">
+          <strong>SayIt</strong>
+        </div>
+        <div class="footer-links">
+          <a href="https://github.com/crosswk/SayIt" target="_blank" rel="noopener">GitHub</a>
+          <span>·</span>
+          <span>AGPL-3.0</span>
+        </div>
+      </div>
+    </footer>
+  </div>
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -15,6 +15,7 @@ Only after PM manually accepts the received audio may the project unlock Deliver
 - Inherited project handoff: `HANDOVER.md`
 - Upstream public repository: `crosswk/SayIt` at inherited commit `bad38da`
 - Private working repository: `https://github.com/Suzixuan/SayIt-watch-local`
+- Baseline import commit: `18400ad82d7f5a7009a47622248643022472650f`
 - Large installer and build caches were deliberately excluded from Git history.
 
 ## Confirmed decisions
@@ -29,7 +30,7 @@ Only after PM manually accepts the received audio may the project unlock Deliver
 ## Current state
 
 - The user reports the existing AudioRelay -> SayIt -> ASR -> text-output chain as VERIFIED. It is out of scope for re-test or refactor.
-- The isolated source baseline and PM documents are prepared.
+- The isolated source baseline and PM documents are prepared and pushed to the private `main` branch.
 - No Watch application or receiver implementation has been accepted yet.
 - The current machine did not expose Java, Android Studio, Android SDK, ADB, Gradle, or CMake on the checked paths. Employee D owns toolchain installation and device-facing work.
 - Delivery 1B remains locked.
@@ -55,4 +56,3 @@ Delivery 1B may modify the external-audio ingress only after the Delivery 1A acc
 
 - Development tokens are generated outside the repository and supplied through environment configuration.
 - Tokens, received audio, local SDK paths, signing material, and device identifiers must not enter Git, logs, screenshots, or handoff documents.
-

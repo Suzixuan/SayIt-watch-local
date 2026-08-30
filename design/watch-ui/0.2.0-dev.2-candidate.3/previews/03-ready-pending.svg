@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="480" viewBox="0 0 480 480">
+  <defs><clipPath id="round"><circle cx="240" cy="240" r="240"/></clipPath></defs>
+  <g clip-path="url(#round)">
+    <rect width="480" height="480" fill="#101418"/>
+    <text x="240" y="46" fill="#7f95a8" font-family="monospace" font-size="17" text-anchor="middle">10:10</text>
+    <text x="240" y="100" fill="#e8edf2" font-family="monospace" font-size="20" font-weight="bold" text-anchor="middle">Ready</text>
+    <text x="240" y="130" fill="#ff8a80" font-family="monospace" font-size="15" text-anchor="middle">Transport unavailable</text>
+    <rect x="24" y="146" width="432" height="52" rx="26" fill="#1d3a5f" stroke="#3d6a9e" stroke-width="2"/>
+    <text x="240" y="178" fill="#d7e3f0" font-family="monospace" font-size="15" text-anchor="middle">Check / Refresh</text>
+    <text x="240" y="226" fill="#3d6a9e" font-family="monospace" font-size="13" text-anchor="middle">Settings</text>
+    <rect x="155" y="248" width="170" height="48" rx="20" fill="#3ddc84"/>
+    <text x="240" y="278" fill="#0b0f14" font-family="monospace" font-size="15" font-weight="bold" text-anchor="middle">Pending upload</text>
+    <rect x="24" y="306" width="432" height="52" rx="26" fill="#1d4a2f" stroke="#3ddc84" stroke-width="2"/>
+    <text x="240" y="338" fill="#d7e3f0" font-family="monospace" font-size="15" text-anchor="middle">Retry upload</text>
+    <circle cx="240" cy="404" r="26" fill="#1d4a2f" stroke="#3ddc84" stroke-width="2"/>
+    <text x="240" y="411" fill="#d7e3f0" font-family="monospace" font-size="20" text-anchor="middle">●</text>
+    <text x="240" y="450" fill="#7f95a8" font-family="monospace" font-size="13" text-anchor="middle">Record</text>
+    <text x="240" y="474" fill="#7f95a8" font-family="monospace" font-size="12" text-anchor="middle">Ready — 16 kHz verified</text>
+  </g>
+  <circle cx="240" cy="240" r="238" fill="none" stroke="#2a3440" stroke-width="2"/>
+  <!-- candidate.3: element-for-element render of the Compose screens at the nominal 1dp=1px reference scale -->
+</svg>

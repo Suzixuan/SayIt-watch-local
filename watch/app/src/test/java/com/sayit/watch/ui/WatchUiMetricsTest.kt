@@ -6,17 +6,17 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Z3 Repair 2 必修 3: the runtime controls must match the frozen candidate
- * previews and stay usable on the 480×480 round screen. These automated layout
- * constraints pin the [WatchUiMetrics] invariants; the previews in
- * `design/watch-ui/0.2.0-dev.2-candidate.2/previews` are generated from the
- * same numbers. Real round-screen touch/clip verification stays with the
- * later device gate.
+ * Z3 Repair 3 必修 2: physical pixels are NOT logical dp — the 480×480 panel
+ * maps to a smaller dp width on the real watch. These tests therefore pin the
+ * RESPONSIVE layout policy (fraction/weight-based widths via `fillMaxWidth` /
+ * `weight`, dp only for heights, padding and the circular main action) instead
+ * of asserting any absolute screen-width arithmetic. Real 480×480 px device
+ * clipping stays with the later device gate.
  */
 class WatchUiMetricsTest {
 
     @Test
-    fun `wide chips meet the minimum 48 dp touch height`() {
+    fun `chips and rows meet the minimum 48 dp touch height`() {
         assertTrue(WatchUiMetrics.WideChipHeightDp >= 48.dp)
         assertTrue(WatchUiMetrics.RowMinHeightDp >= 48.dp)
     }
@@ -27,17 +27,22 @@ class WatchUiMetricsTest {
     }
 
     @Test
-    fun `wide chip width stays inside the 480x480 circular safe area`() {
-        val safeWidth = 480.dp - WatchUiMetrics.ScreenSidePaddingDp * 2
-        assertTrue(WatchUiMetrics.WideChipWidthDp <= safeWidth)
-        assertTrue(WatchUiMetrics.WideChipWidthDp > 0.dp)
+    fun `wide chip fills the padded parent width instead of a fixed dp value`() {
+        assertEquals(1f, WatchUiMetrics.WideChipWidthFraction)
     }
 
     @Test
-    fun `side-by-side failure chips fit the circular safe area`() {
-        val gap = 20.dp
-        val combined = WatchUiMetrics.HalfChipWidthDp * 2 + gap
-        val safeWidth = 480.dp - WatchUiMetrics.ScreenSidePaddingDp * 2
-        assertTrue(combined <= safeWidth)
+    fun `the retry and later weights plus the gap always fit one row`() {
+        assertTrue(WatchUiMetrics.HalfChipWeight > 0f)
+        assertTrue(WatchUiMetrics.HalfChipGapDp > 0.dp)
+        // Two equally weighted chips always share the row regardless of the
+        // device's dp width; the dp gap must stay small next to any plausible
+        // screen width so both chips keep usable, roughly equal touch targets.
+        assertTrue(WatchUiMetrics.HalfChipGapDp <= 16.dp)
+    }
+
+    @Test
+    fun `screen side padding keeps primary controls inside a round safe area`() {
+        assertTrue(WatchUiMetrics.ScreenSidePaddingDp >= 16.dp)
     }
 }

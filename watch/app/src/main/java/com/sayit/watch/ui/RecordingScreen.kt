@@ -62,21 +62,16 @@ import com.sayit.watch.settings.SettingsStore
  */
 
 /**
- * Shared control metrics for the frozen candidate previews (Z3 Repair 2 必修 3).
- * The runtime controls and the SVG previews in
- * `design/watch-ui/0.2.0-dev.2-candidate.2/previews` are generated from these
- * same numbers; `WatchUiMetricsTest` pins the invariants (≥48 dp touch height,
- * widths inside the 480×480 circular safe area).
+ * Shared control metrics for the frozen candidate previews (Z3 Repair 2 必修 3,
+ * made responsive by Repair 3 必修 2). Physical pixels are NOT logical dp: the
+ * Galaxy Watch 7's 480×480 panel maps to a smaller dp width, so widths are
+ * expressed as FRACTIONS of the parent constraint (applied via `fillMaxWidth`
+ * / `weight`), never as fixed dp. `WatchUiMetricsTest` pins these invariants,
+ * and the candidate.3 previews use the same fractions on their 480 px canvas.
  */
 object WatchUiMetrics {
     /** Wear Chip default height — wide pill buttons (Save & Apply, Retry, …). */
     val WideChipHeightDp = 52.dp
-
-    /** Wide pill width inside the 480×480 round safe area (34 dp side padding). */
-    val WideChipWidthDp = 340.dp
-
-    /** Two side-by-side failure-action chips (Retry / Later). */
-    val HalfChipWidthDp = 160.dp
 
     /** Minimum clickable height for config rows and the token Show/Hide action. */
     val RowMinHeightDp = 48.dp
@@ -84,8 +79,17 @@ object WatchUiMetrics {
     /** Circular primary action (Record / Stop) — Wear Button default size. */
     val MainActionSizeDp = 52.dp
 
-    /** Horizontal safe-area padding used on every screen. */
-    val ScreenSidePaddingDp = 34.dp
+    /** Horizontal safe-area padding applied to every screen. */
+    val ScreenSidePaddingDp = 24.dp
+
+    /** Wide pill width: the full padded parent width (responsive, any density). */
+    const val WideChipWidthFraction = 1f
+
+    /** Each half of the Retry/Later pair (two weighted chips + the gap). */
+    const val HalfChipWeight = 1f
+
+    /** Spacer between the two half chips, in dp. */
+    val HalfChipGapDp = 12.dp
 }
 
 /** Masked token display: first 4 + dots + last 4 (e.g. A1B2••••••••7890). */
@@ -108,7 +112,7 @@ private fun WideActionChip(label: String, onClick: () -> Unit, enabled: Boolean 
             )
         },
         modifier = Modifier
-            .width(WatchUiMetrics.WideChipWidthDp)
+            .fillMaxWidth(WatchUiMetrics.WideChipWidthFraction)
             .height(WatchUiMetrics.WideChipHeightDp),
         enabled = enabled,
     )
@@ -117,7 +121,10 @@ private fun WideActionChip(label: String, onClick: () -> Unit, enabled: Boolean 
 /** Two side-by-side pills (Retry / Later) matching the frozen previews. */
 @Composable
 private fun SplitActionChips(primaryLabel: String, secondaryLabel: String, onPrimary: () -> Unit, onSecondary: () -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(WatchUiMetrics.HalfChipGapDp),
+    ) {
         androidx.wear.compose.material.Chip(
             onClick = onPrimary,
             label = {
@@ -129,7 +136,7 @@ private fun SplitActionChips(primaryLabel: String, secondaryLabel: String, onPri
                 )
             },
             modifier = Modifier
-                .width(WatchUiMetrics.HalfChipWidthDp)
+                .weight(WatchUiMetrics.HalfChipWeight)
                 .height(WatchUiMetrics.WideChipHeightDp),
         )
         androidx.wear.compose.material.Chip(
@@ -143,7 +150,7 @@ private fun SplitActionChips(primaryLabel: String, secondaryLabel: String, onPri
                 )
             },
             modifier = Modifier
-                .width(WatchUiMetrics.HalfChipWidthDp)
+                .weight(WatchUiMetrics.HalfChipWeight)
                 .height(WatchUiMetrics.WideChipHeightDp),
         )
     }
@@ -215,7 +222,7 @@ private fun ConfigScreen(viewModel: RecordingViewModel, settings: SettingsStore)
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 34.dp, vertical = 28.dp),
+            .padding(horizontal = WatchUiMetrics.ScreenSidePaddingDp, vertical = 28.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
@@ -318,7 +325,8 @@ private fun ReadyScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 34.dp, vertical = 28.dp),
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = WatchUiMetrics.ScreenSidePaddingDp, vertical = 28.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
@@ -369,9 +377,10 @@ private fun ReadyScreen(
 
         Spacer(Modifier.height(10.dp))
         if (!hasPermission) {
-            Button(onClick = onRequestPermission) {
-                Text(stringResource(R.string.ready_grant_mic), fontSize = 13.sp)
-            }
+            WideActionChip(
+                label = stringResource(R.string.ready_grant_mic),
+                onClick = onRequestPermission,
+            )
         } else {
             Button(
                 onClick = { viewModel.recordButtonPressed() },
@@ -422,7 +431,7 @@ private fun RecordingActiveScreen(viewModel: RecordingViewModel) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 34.dp),
+            .padding(horizontal = WatchUiMetrics.ScreenSidePaddingDp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
@@ -576,13 +585,38 @@ private fun DiscardPromptDialog(viewModel: RecordingViewModel) {
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { viewModel.discardPromptDismissed() }) {
-                    Text(stringResource(R.string.discard_keep), fontSize = 12.sp)
-                }
-                Button(onClick = { viewModel.discardConfirmed() }) {
-                    Text(stringResource(R.string.discard_confirm), fontSize = 12.sp)
-                }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(WatchUiMetrics.HalfChipGapDp),
+            ) {
+                androidx.wear.compose.material.Chip(
+                    onClick = { viewModel.discardPromptDismissed() },
+                    label = {
+                        Text(
+                            text = stringResource(R.string.discard_keep),
+                            fontSize = 13.sp,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    },
+                    modifier = Modifier
+                        .weight(WatchUiMetrics.HalfChipWeight)
+                        .height(WatchUiMetrics.WideChipHeightDp),
+                )
+                androidx.wear.compose.material.Chip(
+                    onClick = { viewModel.discardConfirmed() },
+                    label = {
+                        Text(
+                            text = stringResource(R.string.discard_confirm),
+                            fontSize = 13.sp,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    },
+                    modifier = Modifier
+                        .weight(WatchUiMetrics.HalfChipWeight)
+                        .height(WatchUiMetrics.WideChipHeightDp),
+                )
             }
         }
     }
@@ -596,7 +630,7 @@ private fun OverlayScaffold(content: @Composable () -> Unit) {
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black.copy(alpha = 0.75f))
-            .padding(horizontal = 34.dp),
+            .padding(horizontal = WatchUiMetrics.ScreenSidePaddingDp),
         contentAlignment = Alignment.Center,
     ) {
         Column(
@@ -700,15 +734,38 @@ private fun WearTextInputDialog(
                     .focusRequester(focusRequester),
             )
             Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(WatchUiMetrics.HalfChipGapDp),
+            ) {
+                androidx.wear.compose.material.Chip(
                     onClick = { keyboard?.hide(); onDismiss() },
-                    colors = ButtonDefaults.buttonColors(),
-                ) { Text(stringResource(R.string.action_cancel)) }
-                Button(
+                    label = {
+                        Text(
+                            text = stringResource(R.string.action_cancel),
+                            fontSize = 13.sp,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    },
+                    modifier = Modifier
+                        .weight(WatchUiMetrics.HalfChipWeight)
+                        .height(WatchUiMetrics.WideChipHeightDp),
+                )
+                androidx.wear.compose.material.Chip(
                     onClick = { keyboard?.hide(); onConfirm(text) },
-                    colors = ButtonDefaults.buttonColors(),
-                ) { Text(stringResource(R.string.action_ok)) }
+                    label = {
+                        Text(
+                            text = stringResource(R.string.action_ok),
+                            fontSize = 13.sp,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    },
+                    modifier = Modifier
+                        .weight(WatchUiMetrics.HalfChipWeight)
+                        .height(WatchUiMetrics.WideChipHeightDp),
+                )
             }
         }
     }

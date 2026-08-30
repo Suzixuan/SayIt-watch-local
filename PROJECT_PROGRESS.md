@@ -9,11 +9,11 @@ Overall: Delivery 1A accepted by PM on 2026-08-29. Delivery 1B is unlocked but n
 | Delivery 1A | 3 | Debug-only Windows LAN receiver | ☑ | 🟢 Accepted | PM, Colleague D | PM reviewed 64-hex token, request-ID preservation and strict RIFF bounds; Rust 141 passed / 0 failed / 4 ignored |
 | Delivery 1A | 4 | Android and Windows source/build verification | ☑ | 🟢 Accepted | PM | Fresh PM runs: Android 45/45 plus lint/Debug/Release builds; Vitest 339/339 and client build; Rust 141/141 non-ignored tests; release receiver-marker scan clean |
 | Delivery 1A | 5 | Galaxy Watch 7 transport and manual WAV playback gate | ☑ | 🟢 Accepted | User, PM | PM independently parsed 14.88 s / 238,080-sample 16 kHz s16le mono WAV and matched SHA-256; user confirmed human playback acceptance on 2026-08-29 |
-| Delivery 1B | 6 | Freeze existing Provider input contract | ☐ | ⚪ Unlocked, not started | PM, Colleague D | Delivery 1A gate is accepted; requires a separate Delivery 1B task/branch |
-| Delivery 1B | 7 | External WAV ingress through existing History/Paste | ☐ | ⚪ Locked | Colleague D | Must reuse active Provider and existing callbacks |
+| Delivery 1B | 6 | Freeze existing Provider input contract | ☐ | ⚪ Waiting for user transfer | Colleague Z | Task package: `docs/DELIVERY-1B-Z-CONTRACT-TASK.md`; branch `codex/review-watch-pipeline` |
+| Delivery 1B | 7 | External WAV ingress through existing History/Paste | ☐ | ⚪ Locked | Colleague Z | Unlocks only after PM accepts the Z1 contract; must reuse active Provider and existing callbacks |
 | Acceptance | 8 | Ten consecutive real end-to-end runs | ☐ | ⚪ Locked | User, PM | Record five stages, Stop-to-Paste latency, median and P95 |
 
-Current external slice: none. Stop after Delivery 1A acceptance; Delivery 1B is unlocked but not started.
+Current external slice: Delivery 1B Z1 Provider contract gate, waiting for the user to transfer it to colleague Z. No implementation is authorized yet.
 
 PM review decision (2026-08-29): **NO-GO** on the original submission. Repair instructions were frozen in `docs/DELIVERY-1A-D-REPAIR-1.md`; all six items are now repaired and pushed.
 

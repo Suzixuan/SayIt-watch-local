@@ -15,6 +15,9 @@ Only after PM manually accepts the received audio may the project unlock Deliver
 - Inherited project handoff: `HANDOVER.md`
 - Upstream public repository: `crosswk/SayIt` at inherited commit `bad38da`
 - Private working repository: `https://github.com/Suzixuan/SayIt-watch-local`
+- Accepted Delivery 1A branch: `codex/review-watch-transport`
+- Accepted PM commit: `fe096d7c41c335155db8c8300a89f64b47f75fe1`
+- Delivery 1B review branch for colleague Z: `codex/review-watch-pipeline`
 - Baseline import commit: `18400ad82d7f5a7009a47622248643022472650f`
 - Large installer and build caches were deliberately excluded from Git history.
 
@@ -31,9 +34,17 @@ Only after PM manually accepts the received audio may the project unlock Deliver
 
 - The user reports the existing AudioRelay -> SayIt -> ASR -> text-output chain as VERIFIED. It is out of scope for re-test or refactor.
 - The isolated source baseline and PM documents are prepared and pushed to the private `main` branch.
-- Delivery 1A was submitted on `codex/review-watch-transport`, but PM source review returned NO-GO. The active scope is the bounded repair package in `docs/DELIVERY-1A-D-REPAIR-1.md`.
-- Real-device transport evidence (Watch 7 recording -> receiver -> received_watch.wav) is pending device pairing and PM acceptance; it is separate from source/build results.
-- Delivery 1B remains locked.
+- Delivery 1A was repaired, independently verified, and PM-accepted on `codex/review-watch-transport`.
+- The user confirmed the real received WAV by human playback.
+- Delivery 1B is unlocked, but implementation has not started. The active next slice is the documentation-only Provider contract gate for colleague Z.
+
+## Colleague Z quick start
+
+- Repository: `https://github.com/Suzixuan/SayIt-watch-local` (private; obtain access from the user, never exchange credentials in project files or chat evidence).
+- Read first: `AGENTS.md`, `HANDOFF.md`, `PROJECT_PROGRESS.md`, `HANDOVER.md`, then `docs/DELIVERY-1B-Z-CONTRACT-TASK.md`.
+- Working branch: `codex/review-watch-pipeline`, based on accepted Delivery 1A.
+- Z1 output is documentation only. Do not modify product code until PM accepts the Provider contract.
+- Z must push the requested evidence and stop; no merge, tag, release, installer, or public-upstream push.
 
 ## Delivery 1A source/build evidence (Colleague D, 2026-08-29)
 
@@ -123,7 +134,7 @@ Repair-1 real-device evidence (D evidence): a new speech/ambient recording was c
 
 ## Next executable step
 
-Delivery 1A is accepted. Stop here. Delivery 1B is unlocked but must not start until it is separately dispatched on `codex/review-watch-pipeline`.
+The user personally transfers `docs/DELIVERY-1B-Z-CONTRACT-TASK.md` to colleague Z. Z freezes the real Provider/Orchestrator/History/Paste contract on `codex/review-watch-pipeline` and stops. PM reviews that document before issuing any implementation slice.
 
 ## PM acceptance (2026-08-29)
 
@@ -149,7 +160,7 @@ Decision: Delivery 1A **ACCEPTED**. Delivery 1B is unlocked but not started. No 
 - Response is `201 Created` with request ID, bytes, sample count, duration, and SHA-256.
 - PM manually plays the file and records: no truncation, no abnormal gaps, correct speed/pitch, correct duration, and usable speech.
 
-## Locked follow-up
+## Delivery 1B guardrail
 
 Delivery 1B may modify the external-audio ingress only after the Delivery 1A acceptance gate is recorded here. It must reuse `RecorderOrchestrator`, the active `TranscriptionProvider`, existing callbacks, History, and Paste; it must not create a second ASR path.
 

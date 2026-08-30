@@ -3,14 +3,14 @@
 ## Authority and current goal
 
 - Read `HANDOFF.md`, `PROJECT_PROGRESS.md`, and the active delivery task before changing files.
-- Delivery 1A is PM-accepted. The only unlocked slice is the Delivery 1B Provider contract gate in `docs/DELIVERY-1B-Z-CONTRACT-TASK.md`.
+- Delivery 1A is PM-accepted. The Delivery 1B Provider contract revision 3 is PM-accepted as CONDITIONAL MATCH. The only unlocked slice is the isolated binary-IPC runtime gate in `docs/DELIVERY-1B-Z-BINARY-IPC-SPIKE-TASK.md`.
 - `HANDOVER.md` documents the inherited security-hardened SayIt source. Preserve those fixes.
 - `PROJECT_PROGRESS.md` is the only authoritative progress table for this project.
 
 ## Hard boundaries
 
-- During the Z1 contract gate, do not modify the existing AudioRelay path, ASR implementations, Provider implementations, `RecorderOrchestrator`, History, Paste, Watch/receiver product code, target tracking, VAD, AI, update, backup, storage-security, or server code.
-- Do not implement the Delivery 1B external-audio entry before PM reviews and freezes Z's contract document.
+- During the binary-IPC spike, do not modify the existing AudioRelay path, ASR implementations, Provider implementations, `RecorderOrchestrator`, History, Paste, Watch/receiver product code, target tracking, VAD, AI, update, backup, storage-security, server code, or existing dependency locks. The spike belongs only under `spikes/watch-binary-ipc/` plus its two authority-document updates.
+- Do not implement the Delivery 1B external-audio entry before PM accepts the packaged Windows binary-IPC runtime evidence.
 - Do not add streaming, WebSockets, Opus, discovery, mDNS, QR codes, formal pairing, background recording, wake words, double-Home behavior, or a phone companion app.
 - HTTP receiver code must be debug-only, bind one explicit RFC1918 LAN IPv4, and fail closed when any required environment variable is missing or invalid.
 - Never commit tokens, `.env` files, Android local paths, keystores, APK/AAB files, device serial numbers, received audio, models, installers, or build caches.

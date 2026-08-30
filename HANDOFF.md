@@ -36,15 +36,16 @@ Only after PM manually accepts the received audio may the project unlock Deliver
 - The isolated source baseline and PM documents are prepared and pushed to the private `main` branch.
 - Delivery 1A was repaired, independently verified, and PM-accepted on `codex/review-watch-transport`.
 - The user confirmed the real received WAV by human playback.
-- Delivery 1B Z1 Provider contract revision 3 has been resubmitted by colleague Z after PM Repair 2. It awaits PM re-review; no implementation is authorized yet.
+- Delivery 1B Z1 Provider contract revision 3 was independently re-reviewed and PM-accepted as **CONDITIONAL MATCH**. Repair 1's seven architecture corrections and Repair 2's exact final-chunk accounting are frozen. The only remaining condition is the isolated Tauri raw binary-IPC runtime spike.
+- The next and only unlocked Z slice is `docs/DELIVERY-1B-Z-BINARY-IPC-SPIKE-TASK.md`. External WAV ingress remains locked until PM accepts that runtime evidence.
 - The PM-reviewed Watch UI direction is frozen separately in `docs/WATCH-UI-Z-HANDOFF.md`; it is reference only until an explicit UI implementation slice is unlocked.
 
 ## Colleague Z quick start
 
 - Repository: `https://github.com/Suzixuan/SayIt-watch-local` (private; obtain access from the user, never exchange credentials in project files or chat evidence).
-- Read first: `AGENTS.md`, `HANDOFF.md`, `PROJECT_PROGRESS.md`, `HANDOVER.md`, then `docs/DELIVERY-1B-Z-CONTRACT-TASK.md`.
+- Read first: `AGENTS.md`, `HANDOFF.md`, `PROJECT_PROGRESS.md`, then `docs/DELIVERY-1B-Z-BINARY-IPC-SPIKE-TASK.md`.
 - Working branch: `codex/review-watch-pipeline`, based on accepted Delivery 1A.
-- Z1 output is documentation only. Do not modify product code until PM accepts the Provider contract.
+- Z2 is an isolated runtime harness only. Do not modify SayIt or Watch product code; external ingress remains locked.
 - Z must push the requested evidence and stop; no merge, tag, release, installer, or public-upstream push.
 
 ## Delivery 1B Z1 contract evidence (Colleague Z, 2026-08-29) — revision 1, superseded by Repair 1
@@ -98,6 +99,16 @@ Decision: revision 2 is **not yet frozen**. Colleague Z receives the narrow docu
 - Deliverable: `docs/DELIVERY-1B-PROVIDER-CONTRACT.md` revision 3 (documentation only; review base `dd7efb2`). No product source, tests, dependencies, generated files, UI files, WAVs, APKs, tokens, or logs changed. `docs/WATCH-UI-Z-HANDOFF.md` was treated strictly as PM reference for a later slice — no UI work performed.
 - Scope: exactly the Repair 2 correction — exact final-chunk sample accounting. Changed contract sections: §B.4 (chunk target is not an invariant; the final slice carries the exact remainder, guaranteed even), §B.5 step 7 (per-chunk `chunkSamples = chunk.byteLength / 2` on the exact slice; exact copied chunk into `recordedChunks`; `audioSentSamples += chunkSamples`, never the configured maximum; post-feed assertions `audioSentSamples === admission.sampleCount` and `Σ chunk bytes === pcm.byteLength` **before** `provider.stop`, mismatch → correlated abort with fixed reason `sample_accounting_mismatch`), §B.5 step 9 (`wallTimeAtStopSec`, `pttHoldMs`, timeout input, History duration derived **only** from the exact final `audioSentSamples`), §C.1 (sequence updated with the assertions and abort-before-stop), §E row 7 (explicit non-divisible-by-chunk-target test case plus a mismatch-abort case), §G (new R2 mapping row). Header and revision notes updated; verdict stays **CONDITIONAL MATCH**.
 - Confirmation: no other Repair 1 decision was weakened. The per-run lifecycle (§A.2), two-phase reservation (§B.2), correlated abort operation and nine-case matrix (§B.6), Rust-owned 300 s lease and reload recovery (§B.7), post-save acknowledgement before `201` (§B.3 step 8), shared `finalizeRecording` / no-`stopCapture` rule (§B.5 step 9), probe-once rule, reuse guarantees, and the binary-IPC spike gate (§B.4) all carry over from revision 2 verbatim.
+
+## Delivery 1B Z1 PM acceptance (2026-08-29) — CONDITIONAL MATCH accepted
+
+PM compared revision 3 commit `c89c0bc36bccc32281ca3158e1f111511467d39f` against review base `dd7efb233f3ab85a85c740cecbfe644078cc7827`.
+
+- Scope passed: only `docs/DELIVERY-1B-PROVIDER-CONTRACT.md`, `HANDOFF.md`, and `PROJECT_PROGRESS.md` changed; no product source, tests, dependencies, UI, generated files, or artifacts changed. `git diff --check` is clean.
+- Repair 2 passed: chunk size is a target rather than an invariant; each exact even-length slice uses `chunk.byteLength / 2`; the copied chunks and `audioSentSamples` totals are asserted against the admitted PCM before `provider.stop`; mismatch takes the correlated `sample_accounting_mismatch` abort; duration/timeout/History inputs derive only from the exact final sample total; the implementation test contract includes a non-divisible final chunk and mismatch-before-stop case.
+- Regression review passed: the diff does not weaken the accepted Repair 1 lifecycle, two-phase reservation, two-sided cleanup, Rust lease/reload recovery, pre-`201` acknowledgement, no-`stopCapture` external finalization, probe-once rule, or AI-off/reuse boundaries.
+
+Decision: the Provider contract is frozen and stage 6 is accepted as **CONDITIONAL MATCH**. This is a documentation/architecture acceptance, not Delivery 1B product completion. Only the isolated ≥9 MiB binary-IPC spike is unlocked; task package: `docs/DELIVERY-1B-Z-BINARY-IPC-SPIKE-TASK.md`.
 
 ## Delivery 1A source/build evidence (Colleague D, 2026-08-29)
 

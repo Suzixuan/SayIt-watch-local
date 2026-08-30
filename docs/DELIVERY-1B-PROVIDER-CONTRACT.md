@@ -1,7 +1,7 @@
 # Delivery 1B — Z1 Provider Contract (revision 3, post Repair 2)
 
 - Author: colleague Z (Z1 contract gate).
-- Status: submitted, awaiting PM re-review. Documentation repair only; product implementation remains locked.
+- Status: PM accepted as **CONDITIONAL MATCH** after Repair 2. The only unlocked implementation gate is the isolated binary-IPC spike in `docs/DELIVERY-1B-Z-BINARY-IPC-SPIKE-TASK.md`; external ingress remains locked.
 - Branch: `codex/review-watch-pipeline`. Review base of this revision: `dd7efb233f3ab85a85c740cecbfe644078cc7827`. Revision 2 (`0d62130`) answered Repair 1 (`docs/DELIVERY-1B-Z-CONTRACT-REPAIR-1.md`); revision 3 answers Repair 2 (`docs/DELIVERY-1B-Z-CONTRACT-REPAIR-2.md`) and changes **only** the final-chunk sample accounting (§B.4, §B.5 steps 7-9, §C.1, §E row 7, §G). Every other Repair 1 decision of revision 2 is carried over verbatim.
 - All line references are relative to the repository root at `dd7efb2` (source lines cited in revision 2 were verified unchanged between `8240d4a` and `dd7efb2`; those two commits touch documentation only). Pinned-dependency references cite the exact locked sources: `tauri 2.10.3` (`client/src-tauri/Cargo.lock`) resolved at `~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tauri-2.10.3/`, and `@tauri-apps/api 2.10.1` (`client/node_modules/@tauri-apps/api/`).
 - **Revision-2 corrections** (mapping table in §G): truthful per-run Provider lifecycle (Repair 1.1), two-phase sync/async reservation API (Repair 1.2), correlated two-sided abort (Repair 1.3), Rust-owned lease replacing the unsafe JS watchdog (Repair 1.4), post-save acknowledgement before `201` (Repair 1.5), explicit external audio accounting (Repair 1.6), and `CONDITIONAL MATCH` on the binary-IPC spike (Repair 1.7).

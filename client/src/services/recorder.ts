@@ -84,3 +84,34 @@ export function setPttSuppressed(suppressed: boolean) {
   orchestrator.setPttSuppressed(suppressed)
 }
 
+// ── Delivery 1B: external Watch run (Provider Contract §B) — thin delegation ──
+
+/** Fixed busy/not-ready reason, or null when an external run may be reserved. */
+export function externalAdmissionBlocker(): string | null {
+  return orchestrator.externalAdmissionBlocker()
+}
+
+/** Phase A: synchronous, atomic reservation + one-shot in-process capture. */
+export function tryReserveExternalRun(requestId: string): boolean {
+  return orchestrator.tryReserveExternalRun(requestId)
+}
+
+/** Phase B: bounded native focus/app-context capture (fail-closed). */
+export function prepareExternalRun(requestId: string): Promise<{ ok: boolean; reason?: string }> {
+  return orchestrator.prepareExternalRun(requestId)
+}
+
+/** Validated PCM → connect → checked start → ack → exact feed → finalize. */
+export function beginExternalRun(requestId: string, pcm: ArrayBuffer, sampleCount: number): Promise<boolean> {
+  return orchestrator.beginExternalRun(requestId, pcm, sampleCount)
+}
+
+/** Correlated JS-half abort (request-conditional, idempotent). */
+export function abortExternalRun(requestId: string, reason: string): void {
+  orchestrator.abortExternalRun(requestId, reason)
+}
+
+/** Whether the orchestrator still holds the reservation for this request. */
+export function hasExternalReservation(requestId: string): boolean {
+  return orchestrator.hasExternalReservation(requestId)
+}

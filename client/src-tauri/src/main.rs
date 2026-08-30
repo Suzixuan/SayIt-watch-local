@@ -16,6 +16,17 @@ mod models;
 #[cfg(debug_assertions)]
 mod watch_receiver;
 
+// Delivery 1B debug-only Watch admission gate + commands. Declared here with an
+// explicit #[path] so `watch_receiver/mod.rs` keeps its Delivery 1A shape; the
+// gate implementation lives beside the receiver it guards and shares its
+// OnceLock instance with `ReceiverServer`. Compiled out of release builds
+// together with every `watch_*` command.
+#[cfg(debug_assertions)]
+pub mod watch_admission {
+    #[path = "../watch_receiver/admission.rs"]
+    pub mod admission;
+}
+
 use storage::Storage;
 use window::WindowState;
 use keyboard::KeyboardHookManager;
@@ -342,6 +353,20 @@ fn main() {
         .manage(keyboard_hook)
         .manage(context_detector)
         .setup(move |app| {
+            // Delivery 1B (debug-only): route the Watch receiver's admission and
+            // handoff events into the WebView. The sink is optional by design —
+            // a request arriving before registration fails closed via the
+            // admission timeout (409), never an acceptance.
+            #[cfg(debug_assertions)]
+            {
+                let handle = app.handle().clone();
+                watch_receiver::server::set_event_sink(std::sync::Arc::new(
+                    move |event: &str, payload: String| {
+                        use tauri::Emitter;
+                        let _ = handle.emit(event, payload);
+                    },
+                ));
+            }
             // SayIt's main window and lazy overlay share one WebView2 user-data directory.
             // Per-window browser arguments violate WebView2's environment compatibility
             // contract. Fail loudly during startup instead of leaving a half-working app
@@ -691,6 +716,19 @@ fn main() {
             models::gguf_asr::gguf_asr_diagnostics,
             models::test_audio::run_asr_benchmark,
             models::test_audio::get_test_audio_b64,
+            // Delivery 1B: debug-only Watch admission commands. The #[cfg] on each
+            // entry compiles the whole match arm (and its command path) out of
+            // release builds, so no receiver/admission surface survives there.
+            #[cfg(debug_assertions)]
+            watch_admission::admission::watch_admission_resolve,
+            #[cfg(debug_assertions)]
+            watch_admission::admission::watch_run_started,
+            #[cfg(debug_assertions)]
+            watch_admission::admission::watch_run_aborted,
+            #[cfg(debug_assertions)]
+            watch_admission::admission::watch_read_reserved_pcm,
+            #[cfg(debug_assertions)]
+            watch_admission::admission::watch_gate_state,
         ])
         .on_window_event(|window, event| {
             // 点击关闭按钮时隐藏到托盘，而不是退出

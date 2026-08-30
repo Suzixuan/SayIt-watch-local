@@ -1,6 +1,14 @@
 import * as bridge from '../bridge'
 import { startCapture, stopCapture } from '../audio'
-import { getProvider, type TranscriptionProvider, type TranscriptionCallbacks, type FinalResult } from '../transcription'
+import {
+  getProvider,
+  type TranscriptionProvider,
+  type TranscriptionCallbacks,
+  type FinalResult,
+  type StartOptions,
+  type StopOptions,
+} from '../transcription'
+import { initWatchIngress, PHASE_B_BUDGET_MS } from '../watchIngress'
 import { isStreamingDisplayReady } from '@/lib/asrModels'
 import {
   addHistory,
@@ -147,6 +155,16 @@ export class RecorderOrchestrator {
   private finalReceivedAt = 0
   private timedOutProcessingContext: TimedOutProcessingContext | null = null
   private pendingHistoryArtifact: { runId: number; recordId: string; audioFilePath?: string } | null = null
+  /** Delivery 1B (Provider Contract §B): live external Watch run reservation.
+   *  Phase A sets it synchronously; every abort/completion clears it through
+   *  `abortExternalRun` or the `finishRun` hook. While it exists, mic PTT
+   *  down/up are no-ops (guards in startRecording/stopRecording). */
+  private externalReservation: {
+    requestId: string
+    runId: number
+    phase: 'reserved' | 'preparing' | 'prepared' | 'running'
+    connected: boolean
+  } | null = null
 
   private handsFreeMode = false
   private pttSuppressed = false
@@ -272,6 +290,20 @@ export class RecorderOrchestrator {
       this.activeRunId = 0
       this.processingCancelable = false
     }
+    // Delivery 1B (§B.6): the external run releases the Rust admission gate on
+    // every terminal path — success, error, cancel, empty, and the timeout
+    // fallback all funnel through finishRun. Request-conditional and idempotent.
+    const external = this.externalReservation
+    if (external && external.runId === runId) {
+      this.externalReservation = null
+      addRuntimeEvent('info', 'recorder', 'External run finished; admission gate released', {
+        requestId: external.requestId,
+        runId,
+      })
+      void invoke('watch_run_aborted', { requestId: external.requestId, reason: 'run_finished' }).catch(
+        () => {},
+      )
+    }
   }
 
   /** 若已开启「录音时静音系统声音」，在就绪提示音播放之后再静音系统输出。
@@ -363,6 +395,17 @@ export class RecorderOrchestrator {
     this.initialized = true
 
     startInsertionTargetTracking()
+    // Delivery 1B: bridge the debug receiver's admission/handoff events (§B).
+    // Handlers are injected so the ingress module never imports this file back.
+    void initWatchIngress({
+      tryReserveExternalRun: (requestId) => this.tryReserveExternalRun(requestId),
+      externalAdmissionBlocker: () => this.externalAdmissionBlocker(),
+      prepareExternalRun: (requestId) => this.prepareExternalRun(requestId),
+      beginExternalRun: (requestId, pcm, sampleCount) =>
+        this.beginExternalRun(requestId, pcm, sampleCount),
+      abortExternalRun: (requestId, reason) => this.abortExternalRun(requestId, reason),
+      hasExternalReservation: (requestId) => this.hasExternalReservation(requestId),
+    })
     await this.refreshRuntimeSettings()
     // 静态机器信息只在启动采集一次；不 await，避免拖慢建连（clientMeta 可空，采集期间为 null 无碍）。
     void this.ensureClientRuntimeInfo()
@@ -1320,12 +1363,17 @@ export class RecorderOrchestrator {
       || this.startRecordingLock
       || this.textInsertionInFlight
       || this.finalizingLateRunId !== 0
+      // Delivery 1B (§B.2): a live external Watch reservation blocks PTT down for
+      // its whole lifetime — the state machine alone cannot (it is still idle
+      // until beginExternalRun transitions to recording).
+      || this.externalReservation !== null
     ) {
       addRuntimeEvent('info', 'recorder', 'Ignored start-recording request', {
         state: this.state,
         locked: this.startRecordingLock,
         textInsertionInFlight: this.textInsertionInFlight,
         finalizingLateRunId: this.finalizingLateRunId,
+        externalReserved: this.externalReservation !== null,
       })
       return
     }
@@ -1799,8 +1847,13 @@ export class RecorderOrchestrator {
   }
 
   private async stopRecording() {
-    if (this.state !== 'recording') {
-      addRuntimeEvent('info', 'recorder', 'Ignored stop-recording request', { state: this.state })
+    // Delivery 1B (§B.2): PTT up must never hijack the external Watch run's
+    // `recording` phase — the reservation, not the state, is the guard here.
+    if (this.state !== 'recording' || this.externalReservation !== null) {
+      addRuntimeEvent('info', 'recorder', 'Ignored stop-recording request', {
+        state: this.state,
+        externalReserved: this.externalReservation !== null,
+      })
       return
     }
 
@@ -1873,23 +1926,42 @@ export class RecorderOrchestrator {
     const skipAiForShortSpeech = this.cachedAiMinDurationSec > 0
       && audioDur < this.cachedAiMinDurationSec
 
-    this.provider.stop({
-      pttHoldMs,
-      disableAi: skipAiForShortSpeech || undefined,
-      audioStats: this.audioStatsTotalFrames > 0 ? {
-        avgRms: Math.round((this.audioStatsRmsSum / this.audioStatsTotalFrames) * 10000) / 10000,
-        peakRms: Math.round(this.audioStatsPeakRms * 10000) / 10000,
-        peakAmplitude: Math.round(this.audioStatsPeakAmplitude * 10000) / 10000,
-        silenceRatio: Math.round((this.audioStatsSilentFrames / this.audioStatsTotalFrames) * 1000) / 1000,
-        totalFrames: this.audioStatsTotalFrames,
-      } : undefined,
-    })
+    // Delivery 1B: the stop→processing tail is shared with the external Watch
+    // run (finalizeRecording below); mic-only concerns stay in stopRecording.
     addRuntimeEvent('info', 'recorder', 'Stop sent', {
       audioSec: audioDur,
       pttHoldMs: Math.round(pttHoldMs),
       aiMinDurationSec: this.cachedAiMinDurationSec || undefined,
       skipAiForShortSpeech: skipAiForShortSpeech || undefined,
     })
+    this.finalizeRecording(
+      runId,
+      {
+        pttHoldMs,
+        disableAi: skipAiForShortSpeech || undefined,
+        audioStats: this.audioStatsTotalFrames > 0 ? {
+          avgRms: Math.round((this.audioStatsRmsSum / this.audioStatsTotalFrames) * 10000) / 10000,
+          peakRms: Math.round(this.audioStatsPeakRms * 10000) / 10000,
+          peakAmplitude: Math.round(this.audioStatsPeakAmplitude * 10000) / 10000,
+          silenceRatio: Math.round((this.audioStatsSilentFrames / this.audioStatsTotalFrames) * 1000) / 1000,
+          totalFrames: this.audioStatsTotalFrames,
+        } : undefined,
+      },
+      audioDur,
+      wallTimeSec,
+    )
+  }
+
+  /**
+   * Shared finalization tail (Provider Contract §B.5 step 9): provider.stop →
+   * processing transition → processing-timeout arming → thinking overlay. Used
+   * by the microphone path (stopRecording) and the external Watch run alike;
+   * mic-only teardown (capture-ready wait, stopCapture, mute restore, duration
+   * ratio check, sub-0.5s discard) stays in stopRecording and the external path
+   * never calls it.
+   */
+  private finalizeRecording(runId: number, stopOpts: StopOptions, audioDur: number, wallTimeSec: number) {
+    this.provider.stop(stopOpts)
 
     if (!this.transition('processing')) {
       this.finishRun(runId)
@@ -2000,6 +2072,263 @@ export class RecorderOrchestrator {
 
       this.resetToIdle({ preserveLateFinalContext: true })
     }, processingTimeoutMs)
+  }
+
+  // ── Delivery 1B: external Watch run (Provider Contract §B) ──
+
+  /** Fixed admission blocker reason, or null when a run may be reserved now. */
+  externalAdmissionBlocker(): string | null {
+    if (this.externalReservation !== null) return 'already_reserved'
+    if (
+      this.state !== 'idle'
+      || this.startRecordingLock
+      || this.textInsertionInFlight
+      || this.finalizingLateRunId !== 0
+    ) {
+      return 'orchestrator_not_idle'
+    }
+    if (!this.provider.isReady()) return 'provider_not_ready'
+    return null
+  }
+
+  /** Phase A (synchronous, atomic — no await): reserve the run and capture the
+   *  in-process insertion target exactly once. Runs inside a single JS task, so
+   *  no PTT event can interleave between the busy/ready checks and the
+   *  reservation; the reservation then blocks PTT through the startRecording /
+   *  stopRecording guards until the run ends. */
+  tryReserveExternalRun(requestId: string): boolean {
+    if (this.externalAdmissionBlocker() !== null) return false
+    const runId = ++this.runSequence
+    this.activeRunId = runId
+    this.externalReservation = { requestId, runId, phase: 'reserved', connected: false }
+    // Synchronous in-process renderer capture (textInsertion.ts) — the same
+    // one-shot the mic path performs at startRecording time.
+    captureActiveInsertionTarget(undefined, { preserveExistingOnFailure: true })
+    addRuntimeEvent('info', 'recorder', 'External run reserved (Phase A)', { requestId, runId })
+    return true
+  }
+
+  hasExternalReservation(requestId: string): boolean {
+    return this.externalReservation?.requestId === requestId
+  }
+
+  private isExternalCurrent(requestId: string, runId: number): boolean {
+    const res = this.externalReservation
+    return res !== null && res.requestId === requestId && res.runId === runId
+  }
+
+  /** Phase B (bounded, asynchronous): the native one-shot focus/app-context
+   *  capture. Failure or timeout is fail-closed and aborts both sides — never a
+   *  silent fallback to a later live probe. */
+  async prepareExternalRun(requestId: string): Promise<{ ok: boolean; reason?: string }> {
+    const res = this.externalReservation
+    if (!res || res.requestId !== requestId) return { ok: false, reason: 'already_reserved' }
+    res.phase = 'preparing'
+    try {
+      const recordingContext = await Promise.race([
+        bridge.getRecordingContext(false),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('context_capture_timeout')), PHASE_B_BUDGET_MS),
+        ),
+      ])
+      if (!this.isExternalCurrent(requestId, res.runId)) {
+        return { ok: false, reason: 'stale_reservation' }
+      }
+      // Same fields as the mic path, so the onFinal/timeout snapshots need no changes.
+      this.currentActiveAppContext = recordingContext.appContext as unknown as ActiveAppContext
+      this.cachedProbeResult = recordingContext.probe as unknown as ProbeResult
+      this.currentPromptResolution = resolvePromptRouting({
+        appContext: this.currentActiveAppContext,
+        presets: this.cachedPresets,
+        activePresetId: this.cachedActivePresetId,
+        appRules: this.cachedAppPromptRules,
+        userStats: this.cachedUserStats,
+        hotwords: this.cachedHotwords,
+        injectHotwords: this.cachedInjectHotwords,
+      })
+      res.phase = 'prepared'
+      addRuntimeEvent('info', 'recorder', 'External run prepared (Phase B)', {
+        requestId,
+        runId: res.runId,
+        probeId: this.cachedProbeResult?.probeId,
+        editable: this.cachedProbeResult?.editable,
+      })
+      return { ok: true }
+    } catch (error) {
+      const reason = String(error).includes('context_capture_timeout')
+        ? 'context_capture_timeout'
+        : 'context_capture_failed'
+      this.abortExternalRun(requestId, reason)
+      return { ok: false, reason }
+    }
+  }
+
+  /**
+   * Feed the validated raw PCM through the active Provider (contract §B.5).
+   * Order is the frozen lifecycle: validate → reset run fields → connect(fresh
+   * guarded callbacks) → re-verify ready → checked start (AI forced off for this
+   * run only) → transition recording → run-start ack → exact-accounting feed →
+   * assertions → shared finalize. No PCM moves before `start()` succeeds; every
+   * await re-verifies the reservation; every failure aborts both sides.
+   */
+  async beginExternalRun(requestId: string, pcm: ArrayBuffer, sampleCount: number): Promise<boolean> {
+    const res = this.externalReservation
+    if (!res || res.requestId !== requestId) return false
+    const runId = res.runId
+    res.phase = 'running'
+
+    // (1) Validate against the admission metadata before anything else.
+    if (pcm.byteLength === 0 || pcm.byteLength % 2 !== 0 || pcm.byteLength !== sampleCount * 2) {
+      this.abortExternalRun(requestId, 'pcm_length_mismatch')
+      return false
+    }
+
+    // (2) Reset the per-run fields exactly like startRecording does.
+    this.finalHandledInCurrentRun = false
+    this.audioSentSamples = 0
+    this.wallTimeAtStopSec = 0
+    this.recordedChunks = []
+    this.finalReceivedAt = 0
+    this.pendingHistoryArtifact = null
+
+    // (3) Per-run connect with the existing guarded callbacks.
+    try {
+      await this.provider.connect(this.buildProviderCallbacks())
+    } catch (error) {
+      addRuntimeEvent('warn', 'recorder', 'External run connect failed', { requestId, error: String(error) })
+      this.abortExternalRun(requestId, 'provider_connect_failed')
+      return false
+    }
+    res.connected = true
+    if (!this.isExternalCurrent(requestId, runId)) return false
+
+    // (4) Re-verify readiness after connect.
+    if (!this.provider.isReady()) {
+      this.abortExternalRun(requestId, 'provider_not_ready_after_connect')
+      return false
+    }
+
+    // (5) Checked start. AI cleanup is forced off for this run only:
+    // disableAi: true and no system prompt — the user's aiEnabled setting is
+    // never read-modified or persisted.
+    const promptOpts: StartOptions = {
+      runId,
+      disableAi: true,
+      aiMinDurationSec: this.cachedAiMinDurationSec,
+      clientMeta: this.cachedClientRuntimeInfo,
+      appContext: this.currentActiveAppContext,
+      hotwords: this.cachedHotwords.length > 0 ? this.cachedHotwords : undefined,
+      language: this.cachedLanguage || undefined,
+      streamingDisplay: this.cachedStreamingDisplay,
+    }
+    let started = false
+    try {
+      started = this.provider.start(promptOpts)
+    } catch (error) {
+      addRuntimeEvent('warn', 'recorder', 'External run start threw', { requestId, error: String(error) })
+      this.abortExternalRun(requestId, 'provider_start_failed')
+      return false
+    }
+    if (!started) {
+      this.abortExternalRun(requestId, 'provider_start_failed')
+      return false
+    }
+
+    // (6) Occupy the recording state, then acknowledge — only now may the
+    // receiver answer 201 (transport/run-start success, never transcription).
+    if (!this.transition('recording')) {
+      this.abortExternalRun(requestId, 'state_transition_failed')
+      return false
+    }
+    try {
+      const acked = await invoke<boolean>('watch_run_started', { requestId })
+      if (acked !== true) {
+        this.abortExternalRun(requestId, 'run_start_ack_unmatched')
+        return false
+      }
+    } catch (error) {
+      addRuntimeEvent('warn', 'recorder', 'External run-start ack failed', { requestId, error: String(error) })
+      this.abortExternalRun(requestId, 'run_start_ack_failed')
+      return false
+    }
+    addRuntimeEvent('info', 'recorder', 'External run started', { requestId, runId, sampleCount })
+
+    // (7) Feed exact even-length slices (4096-sample target). Per slice:
+    // chunkSamples = byteLength / 2 on that exact slice, the exact copied slice
+    // appended to recordedChunks, audioSentSamples += chunkSamples — never the
+    // configured maximum (contract §B.5 step 7, Repair 2).
+    const CHUNK_TARGET_BYTES = 8192 // 4096 i16 samples — capture fallback buffer size
+    for (let offset = 0; offset < pcm.byteLength; offset += CHUNK_TARGET_BYTES) {
+      if (!this.isExternalCurrent(requestId, runId)) return false
+      const chunk = pcm.slice(offset, Math.min(offset + CHUNK_TARGET_BYTES, pcm.byteLength))
+      this.recordedChunks.push(chunk)
+      this.audioSentSamples += chunk.byteLength / 2
+      this.provider.sendAudio(chunk)
+      // Yield between chunks so the ingest loop never starves the event loop.
+      await new Promise<void>((resolve) => setTimeout(resolve, 0))
+    }
+
+    // Post-feed exact accounting assertions — before any provider.stop.
+    const chunkBytesTotal = this.recordedChunks.reduce((sum, c) => sum + c.byteLength, 0)
+    if (this.audioSentSamples !== sampleCount || chunkBytesTotal !== pcm.byteLength) {
+      addRuntimeEvent('warn', 'recorder', 'External feed accounting mismatch', {
+        requestId,
+        runId,
+        audioSentSamples: this.audioSentSamples,
+        sampleCount,
+        chunkBytesTotal,
+        pcmBytes: pcm.byteLength,
+      })
+      this.abortExternalRun(requestId, 'sample_accounting_mismatch')
+      return false
+    }
+
+    // (8) Sample-derived durations only — never a fake wall clock.
+    const audioDur = this.audioSentSamples / 16000
+    if (audioDur < 0.5) {
+      // Mirrors the mic path's sub-0.5s discard: no History entry, no processing.
+      addRuntimeEvent('info', 'recorder', 'External recording shorter than 0.5s; discarded', {
+        requestId,
+        runId,
+        audioDur,
+      })
+      this.provider.cancel()
+      this.finishRun(runId) // releases the admission gate via the finishRun hook
+      return true
+    }
+    this.wallTimeAtStopSec = audioDur
+    this.finalizeRecording(runId, { pttHoldMs: audioDur * 1000, disableAi: true }, audioDur, audioDur)
+    return true
+  }
+
+  /**
+   * One correlated abort (contract §B.6): clears the JS reservation and runId,
+   * tears down the Provider session if one was established, resets overlay/Esc
+   * state, and notifies the Rust gate. Idempotent; conditional on the request ID
+   * so a stale cleanup can never clear a newer run.
+   */
+  abortExternalRun(requestId: string, reason: string): void {
+    const res = this.externalReservation
+    if (!res || res.requestId !== requestId) {
+      addRuntimeEvent('info', 'recorder', 'Ignored external abort (stale or unknown request)', {
+        requestId,
+        reason,
+      })
+      return
+    }
+    this.externalReservation = null
+    const runId = res.runId
+    addRuntimeEvent('warn', 'recorder', 'External run aborted', { requestId, runId, reason })
+    if (res.connected) {
+      this.provider.cancel()
+      if (this.provider.mode === 'server') this.ensureConnection()
+    }
+    this.recordedChunks = []
+    this.finishRun(runId)
+    if (this.state !== 'idle') {
+      this.resetToIdle({ keepOverlay: false })
+    }
+    void invoke('watch_run_aborted', { requestId, reason }).catch(() => {})
   }
 
   // ── Toggle / hands-free ──

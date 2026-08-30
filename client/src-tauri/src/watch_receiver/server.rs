@@ -6,31 +6,92 @@
 //!   10 MiB before allocation/writing, validated WAV saved atomically to
 //!   `%LOCALAPPDATA%\com.sayit.app\watch-receiver\received_watch.wav`.
 //!
-//! JSON error bodies use explicit 400/401/404/405/413/500 statuses; 202 is
-//! never returned. The token and Authorization header are never logged.
+//! Delivery 1B (frozen Provider Contract §B): `POST /api/watch/audio` admits the
+//! run through the WebView Orchestrator **before** the accepted file is replaced,
+//! and returns `201` only after the post-save `watch_run_started` acknowledgement
+//! proves the Provider session was connected and `start()` succeeded. Busy /
+//! not-ready / bridge-timeout rejections answer `409` and never touch disk;
+//! preparation and run-start failures answer `500` and abort both sides. The
+//! token and Authorization header are never logged.
+//!
+//! JSON error bodies use explicit 400/401/404/405/409/413/415/500 statuses; 202 is
+//! never returned.
 
+// The admission module is mounted from main.rs (debug-only) so that
+// `watch_receiver/mod.rs` keeps its Delivery 1A shape.
+use crate::watch_admission::admission::{AdmissionGate, AdmissionOutcome};
 use crate::watch_receiver::config::ReceiverConfig;
 use crate::watch_receiver::wav;
 use sha2::{Digest, Sha256};
 use std::io::{Read, Write};
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 use tiny_http::{Header, Method, Request, Response, Server, StatusCode};
 
 pub const MAX_BODY_BYTES: usize = 10 * 1024 * 1024; // 10 MiB cap before allocation
 
+/// Debug-only event sink into the WebView (Tauri `emit` in production, set from
+/// `main.rs` setup; a recording closure in tests). Events emitted before the
+/// sink is registered are dropped — the request then fails closed via the
+/// admission timeout, which is the correct behavior for a not-yet-ready WebView.
+pub type EventSink = Arc<dyn Fn(&str, String) + Send + Sync>;
+
+static EVENT_SINK: OnceLock<EventSink> = OnceLock::new();
+
+/// Registers the production WebView emitter. Debug-only; called from `main.rs`.
+pub fn set_event_sink(sink: EventSink) {
+    let _ = EVENT_SINK.set(sink);
+}
+
+fn event_sink() -> EventSink {
+    EVENT_SINK
+        .get()
+        .cloned()
+        .unwrap_or_else(|| Arc::new(|_event, _payload| {}))
+}
+
+/// Fixed rejection reasons that map to `409` (busy / not ready / bridge timeout).
+/// Everything else is a preparation failure and maps to `500` per the contract.
+fn is_busy_reason(reason: &str) -> bool {
+    matches!(
+        reason,
+        "orchestrator_not_idle"
+            | "provider_not_ready"
+            | "already_reserved"
+            | "bridge_timeout"
+    )
+}
+
 pub struct ReceiverServer {
     server: Server,
     cfg: Arc<ReceiverConfig>,
+    gate: Arc<AdmissionGate>,
+    emit: EventSink,
 }
 
 impl ReceiverServer {
+    /// Production constructor: the process-wide shared admission gate and the
+    /// globally registered WebView event sink (set from `main.rs` setup).
     pub fn start(
         cfg: Arc<ReceiverConfig>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        Self::start_with(cfg, AdmissionGate::shared(), event_sink())
+    }
+
+    /// Explicit constructor used by tests to inject their own gate and event log.
+    pub fn start_with(
+        cfg: Arc<ReceiverConfig>,
+        gate: Arc<AdmissionGate>,
+        emit: EventSink,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let addr = format!("{}:{}", cfg.bind_ip, cfg.port);
         let server = Server::http(addr.as_str())?;
-        Ok(Self { server, cfg })
+        Ok(Self {
+            server,
+            cfg,
+            gate,
+            emit,
+        })
     }
 
     pub fn bind_ip(&self) -> String {
@@ -163,6 +224,37 @@ impl ReceiverServer {
             }
         };
 
+        // 5.5 Admission (Delivery 1B, Provider Contract §B): the WebView
+        // Orchestrator must accept the run before anything touches disk, so a
+        // `409`/preparation failure never overwrites the last accepted file.
+        // The decision is bounded and fails closed with `409 bridge_timeout`.
+        (self.emit)(
+            "watch://admission-request",
+            format!(
+                r#"{{"requestId":"{request_id}","bytes":{},"sampleCount":{},"durationMs":{}}}"#,
+                body.len(),
+                info.sample_count,
+                info.duration_ms
+            ),
+        );
+        let outcome = self.gate.request_admission(&request_id);
+        if let AdmissionOutcome::Rejected { reason } = outcome {
+            let status = if is_busy_reason(&reason) {
+                StatusCode(409)
+            } else {
+                StatusCode(500)
+            };
+            let error = if status.0 == 409 { "busy" } else { "admission failed" };
+            log::info!("watch admission: request {request_id} rejected ({reason})");
+            return json_response(
+                request,
+                status,
+                &format!(
+                    r#"{{"error":"{error}","detail":"{reason}","requestId":"{request_id}"}}"#
+                ),
+            );
+        }
+
         // 6. Durable atomic replacement under %LOCALAPPDATA%\com.sayit.app\watch-receiver.
         let dir = watch_receiver_dir();
         let target = dir.join("received_watch.wav");
@@ -170,12 +262,47 @@ impl ReceiverServer {
             Ok(()) => {}
             Err(e) => {
                 log::error!("watch receiver: failed to save received_watch.wav: {e}");
+                // Correlated abort on both sides (Provider Contract §B.6 row 3).
+                self.gate.abort(&request_id, "save_failed");
+                (self.emit)(
+                    "watch://run-abort",
+                    format!(r#"{{"requestId":"{request_id}","reason":"save_failed"}}"#),
+                );
                 return json_response(request, StatusCode(500), r#"{"error":"storage failure"}"#);
             }
         }
 
-        // 7. Success response (only after durable replacement). Echo the request
-        // UUID exactly as received — never a locally generated unrelated ID.
+        // 7. Post-save handoff: tell the WebView the durable file is ready, then
+        // wait (bounded) for `watch_run_started` — the acknowledgement that the
+        // Provider session was connected and `start()` succeeded for this exact
+        // request. Any failure answers non-2xx (Watch keeps its WAV) and aborts
+        // both sides; `201` still means transport/run-start success only.
+        (self.emit)(
+            "watch://audio-ready",
+            format!(
+                r#"{{"requestId":"{request_id}","bytes":{},"sampleCount":{},"durationMs":{}}}"#,
+                body.len(),
+                info.sample_count,
+                info.duration_ms
+            ),
+        );
+        if let Err(reason) = self.gate.wait_run_started(&request_id) {
+            (self.emit)(
+                "watch://run-abort",
+                format!(r#"{{"requestId":"{request_id}","reason":"{reason}"}}"#),
+            );
+            return json_response(
+                request,
+                StatusCode(500),
+                &format!(
+                    r#"{{"error":"run failed to start","detail":"{reason}","requestId":"{request_id}"}}"#
+                ),
+            );
+        }
+
+        // 8. Success response (only after durable replacement, admission and the
+        // run-start acknowledgement). Echo the request UUID exactly as received —
+        // never a locally generated unrelated ID.
         let sha = hex_sha256(&body);
         let body_json = format!(
             r#"{{"requestId":"{request_id}","bytes":{},"sampleCount":{},"audioDurationMs":{},"sha256":"{sha}"}}"#,
@@ -221,7 +348,10 @@ impl ReceiverServer {
     }
 }
 
-fn watch_receiver_dir() -> PathBuf {
+/// Receiver storage directory. `pub(crate)` so the debug-only
+/// `watch_read_reserved_pcm` command can read the accepted file without
+/// duplicating the path rule.
+pub(crate) fn watch_receiver_dir() -> PathBuf {
     // Test isolation hook: tests redirect the receiver dir to a temp location.
     if let Ok(override_dir) = std::env::var("SAYIT_WATCH_RECEIVER_DIR") {
         if !override_dir.trim().is_empty() {
@@ -351,18 +481,38 @@ mod tests {
     /// The server thread is intentionally not joined: `run` blocks forever and
     /// the process exit terminates it.
     fn start_test_server() -> String {
+        let (addr, _gate, _events) = start_test_server_with(Arc::new(AdmissionGate::new()));
+        addr
+    }
+
+    /// Same, but exposes the gate and the recorded event log for admission/ack
+    /// orchestration and ordering assertions from tests.
+    fn start_test_server_with(
+        gate: Arc<AdmissionGate>,
+    ) -> (
+        String,
+        Arc<AdmissionGate>,
+        Arc<Mutex<Vec<(String, String)>>>,
+    ) {
         let cfg = Arc::new(ReceiverConfig {
             bind_ip: "127.0.0.1".parse().unwrap(),
             port: 0,
             // Frozen 64-hex dev token for tests (never a real token).
             dev_token: "abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234".to_string(),
         });
-        let server = ReceiverServer::start(cfg).expect("bind");
+        let events: Arc<Mutex<Vec<(String, String)>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink: EventSink = {
+            let events = Arc::clone(&events);
+            Arc::new(move |event: &str, payload: String| {
+                events.lock().unwrap().push((event.to_string(), payload));
+            })
+        };
+        let server = ReceiverServer::start_with(cfg, gate.clone(), sink).expect("bind");
         let addr = server.server.server_addr().to_string();
         std::thread::spawn(move || server.run());
         // Give the accept loop a moment to start.
         std::thread::sleep(std::time::Duration::from_millis(50));
-        addr
+        (addr, gate, events)
     }
 
     const TEST_TOKEN: &str = "abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234";
@@ -464,7 +614,7 @@ mod tests {
     #[test]
     fn x_request_id_required_and_validated() {
         isolate_dir();
-        let addr = start_test_server();
+        let (addr, gate, events) = start_test_server_with(Arc::new(AdmissionGate::new()));
         let wav = canonical_wav(100);
 
         // Missing X-Request-Id -> 400
@@ -494,7 +644,26 @@ mod tests {
         );
         assert_eq!(status_of(&resp), 400);
 
-        // Valid UUID -> 201
+        // Valid UUID -> 201 (Delivery 1B: requires the WebView admission decision
+        // and the post-save run-start acknowledgement, simulated here).
+        {
+            let (gate, events) = (Arc::clone(&gate), Arc::clone(&events));
+            std::thread::spawn(move || {
+                for _ in 0..300 {
+                    if gate.resolve_admission(TEST_UUID, true, None) {
+                        break;
+                    }
+                    std::thread::sleep(TestDuration::from_millis(5));
+                }
+                for _ in 0..300 {
+                    if events.lock().unwrap().iter().any(|(e, _)| e == "watch://audio-ready") {
+                        break;
+                    }
+                    std::thread::sleep(TestDuration::from_millis(5));
+                }
+                assert!(gate.resolve_run_started(TEST_UUID));
+            });
+        }
         let resp = raw_request(&addr, "POST", "/api/watch/audio", &auth_headers(), &wav);
         assert_eq!(status_of(&resp), 201);
     }
@@ -557,7 +726,26 @@ mod tests {
     #[test]
     fn successful_upload_returns_201_with_metadata_and_sha() {
         let dir = isolate_dir();
-        let addr = start_test_server();
+        let (addr, gate, events) = start_test_server_with(Arc::new(AdmissionGate::new()));
+        // Delivery 1B: simulate the WebView admission decision + run-start ack.
+        {
+            let (gate, events) = (Arc::clone(&gate), Arc::clone(&events));
+            std::thread::spawn(move || {
+                for _ in 0..300 {
+                    if gate.resolve_admission(TEST_UUID, true, None) {
+                        break;
+                    }
+                    std::thread::sleep(TestDuration::from_millis(5));
+                }
+                for _ in 0..300 {
+                    if events.lock().unwrap().iter().any(|(e, _)| e == "watch://audio-ready") {
+                        break;
+                    }
+                    std::thread::sleep(TestDuration::from_millis(5));
+                }
+                assert!(gate.resolve_run_started(TEST_UUID));
+            });
+        }
         let wav = canonical_wav(32000); // 1 second of 16 kHz mono
 
         let resp = raw_request(&addr, "POST", "/api/watch/audio", &auth_headers(), &wav);
@@ -620,5 +808,167 @@ mod tests {
         assert!(digest.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
         assert_eq!(hex_sha256(b"abc"), hex_sha256(b"abc"));
         assert_ne!(hex_sha256(b"abc"), hex_sha256(b"abd"));
+    }
+
+    // ─── Delivery 1B admission / acknowledgement integration (Provider Contract §B) ───
+
+    use crate::watch_admission::admission::{ADMISSION_TIMEOUT, LEASE, RUN_START_ACK_TIMEOUT};
+    use std::time::Duration as TestDuration;
+
+    /// Waits until the receiver's pending admission slot exists, then resolves it.
+    fn resolve_admission_when_pending(gate: &Arc<AdmissionGate>, id: &str, accepted: bool, reason: Option<&str>) {
+        for _ in 0..300 {
+            if gate.pending_admission_count_for_test() > 0 {
+                assert!(gate.resolve_admission(id, accepted, reason.map(str::to_string)));
+                return;
+            }
+            std::thread::sleep(TestDuration::from_millis(5));
+        }
+        panic!("admission request never arrived");
+    }
+
+    fn wait_for_event(events: &Arc<Mutex<Vec<(String, String)>>>, name: &str) {
+        for _ in 0..300 {
+            if events.lock().unwrap().iter().any(|(e, _)| e == name) {
+                return;
+            }
+            std::thread::sleep(TestDuration::from_millis(5));
+        }
+        panic!("event {name} never emitted");
+    }
+
+    #[test]
+    fn busy_gate_returns_409_and_preserves_previous_file() {
+        let dir = isolate_dir();
+        // A previously accepted file must survive a busy rejection untouched.
+        let previous = canonical_wav(16000);
+        std::fs::write(dir.join("received_watch.wav"), &previous).unwrap();
+
+        let gate = Arc::new(AdmissionGate::new());
+        gate.force_reserve_for_test(TEST_UUID, TestDuration::from_secs(1));
+        let (addr, gate, _events) = start_test_server_with(gate);
+
+        let resp = raw_request(&addr, "POST", "/api/watch/audio", &auth_headers(), &canonical_wav(8000));
+        assert_eq!(status_of(&resp), 409);
+        assert!(resp.contains(r#""error":"busy""#));
+        assert!(resp.contains(r#""detail":"already_reserved""#));
+        // The old accepted file is intact; no save occurred.
+        assert_eq!(std::fs::read(dir.join("received_watch.wav")).unwrap(), previous);
+        // The gate reservation itself is untouched by the rejected upload.
+        assert_eq!(gate.snapshot().request_id.as_deref(), Some(TEST_UUID));
+    }
+
+    #[test]
+    fn preparation_failure_returns_500_without_touching_disk() {
+        let dir = isolate_dir();
+        let (addr, gate, _events) = start_test_server_with(Arc::new(AdmissionGate::new()));
+        {
+            let g = Arc::clone(&gate);
+            std::thread::spawn(move || {
+                resolve_admission_when_pending(&g, TEST_UUID, false, Some("context_capture_failed"));
+            });
+        }
+        let resp = raw_request(&addr, "POST", "/api/watch/audio", &auth_headers(), &canonical_wav(8000));
+        assert_eq!(status_of(&resp), 500);
+        assert!(resp.contains(r#""error":"admission failed""#));
+        assert!(resp.contains(r#""detail":"context_capture_failed""#));
+        assert!(!dir.join("received_watch.wav").exists(), "no file may be written on rejection");
+        assert_eq!(gate.snapshot().state, "Idle");
+    }
+
+    #[test]
+    fn bridge_timeout_returns_409_and_keeps_gate_idle() {
+        let dir = isolate_dir();
+        // Short admission timeout so the test stays fast; the WebView never answers.
+        let (addr, gate, _events) =
+            start_test_server_with(Arc::new(AdmissionGate::with_timeouts(TestDuration::from_millis(150), RUN_START_ACK_TIMEOUT, LEASE)));
+        let resp = raw_request(&addr, "POST", "/api/watch/audio", &auth_headers(), &canonical_wav(8000));
+        assert_eq!(status_of(&resp), 409);
+        assert!(resp.contains(r#""detail":"bridge_timeout""#));
+        assert!(!dir.join("received_watch.wav").exists());
+        assert_eq!(gate.snapshot().state, "Idle");
+    }
+
+    #[test]
+    fn full_accept_flow_201_only_after_run_started_ack() {
+        let dir = isolate_dir();
+        let (addr, gate, events) = start_test_server_with(Arc::new(AdmissionGate::new()));
+        {
+            let g = Arc::clone(&gate);
+            let events = Arc::clone(&events);
+            std::thread::spawn(move || {
+                // Simulated WebView: Phase A+B accepted.
+                resolve_admission_when_pending(&g, TEST_UUID, true, None);
+                // Simulated PCM read + connect + start, then the run-start ack.
+                wait_for_event(&events, "watch://audio-ready");
+                assert!(g.resolve_run_started(TEST_UUID));
+            });
+        }
+        let wav = canonical_wav(32000);
+        let resp = raw_request(&addr, "POST", "/api/watch/audio", &auth_headers(), &wav);
+        assert_eq!(status_of(&resp), 201);
+        assert!(resp.contains(r#""requestId":"123e4567-e89b-12d3-a456-426614174000""#));
+        // The accepted file exists and matches byte-for-byte.
+        assert_eq!(std::fs::read(dir.join("received_watch.wav")).unwrap(), wav);
+
+        // Event ordering: admission-request strictly before audio-ready; no aborts.
+        let log = events.lock().unwrap();
+        let admission_idx = log.iter().position(|(e, _)| e == "watch://admission-request").expect("admission-request");
+        let ready_idx = log.iter().position(|(e, _)| e == "watch://audio-ready").expect("audio-ready");
+        assert!(admission_idx < ready_idx);
+        assert!(!log.iter().any(|(e, _)| e == "watch://run-abort"));
+        drop(log);
+
+        // The run owns the reservation until the run finishes.
+        assert_eq!(gate.snapshot().state, "Reserved");
+        assert!(gate.abort(TEST_UUID, "run_finished"));
+        assert_eq!(gate.snapshot().state, "Idle");
+    }
+
+    #[test]
+    fn ack_timeout_returns_500_and_releases_gate() {
+        let dir = isolate_dir();
+        let (addr, gate, events) =
+            start_test_server_with(Arc::new(AdmissionGate::with_timeouts(ADMISSION_TIMEOUT, TestDuration::from_millis(150), LEASE)));
+        {
+            let g = Arc::clone(&gate);
+            std::thread::spawn(move || {
+                resolve_admission_when_pending(&g, TEST_UUID, true, None);
+                // The WebView never acknowledges: PCM read/connect/start hung.
+            });
+        }
+        let resp = raw_request(&addr, "POST", "/api/watch/audio", &auth_headers(), &canonical_wav(8000));
+        assert_eq!(status_of(&resp), 500);
+        assert!(resp.contains(r#""error":"run failed to start""#));
+        assert!(resp.contains(r#""detail":"ack_timeout""#));
+        // Both sides aborted: gate released, run-abort emitted.
+        assert_eq!(gate.snapshot().state, "Idle");
+        assert!(events.lock().unwrap().iter().any(|(e, p)| e == "watch://run-abort" && p.contains("ack_timeout")));
+        let _ = dir;
+    }
+
+    #[test]
+    fn save_failure_aborts_gate_and_returns_500() {
+        // Point the receiver dir at a plain file so the atomic save cannot create
+        // its directory: a durable-save failure after successful admission.
+        let dir = isolate_dir();
+        let blocker = dir.join("not-a-dir");
+        std::fs::write(&blocker, b"file, not dir").unwrap();
+        std::env::set_var("SAYIT_WATCH_RECEIVER_DIR", &blocker);
+
+        let (addr, gate, events) = start_test_server_with(Arc::new(AdmissionGate::new()));
+        {
+            let g = Arc::clone(&gate);
+            std::thread::spawn(move || {
+                resolve_admission_when_pending(&g, TEST_UUID, true, None);
+            });
+        }
+        let resp = raw_request(&addr, "POST", "/api/watch/audio", &auth_headers(), &canonical_wav(8000));
+        assert_eq!(status_of(&resp), 500);
+        assert!(resp.contains(r#""error":"storage failure""#));
+        // The reservation is released on the Rust side (JS half via run-abort event).
+        assert_eq!(gate.snapshot().state, "Idle");
+        assert!(events.lock().unwrap().iter().any(|(e, p)| e == "watch://run-abort" && p.contains("save_failed")));
+        std::env::remove_var("SAYIT_WATCH_RECEIVER_DIR");
     }
 }

@@ -39,6 +39,7 @@ Only after PM manually accepts the received audio may the project unlock Deliver
 - Delivery 1B Provider contract is PM-accepted as **MATCH**. Repair 1's seven architecture corrections, Repair 2's exact final-chunk accounting, and the Z2 packaged-Windows raw binary-IPC proof are frozen.
 - Z2 (stage 6A) is independently PM-accepted. The next and only unlocked slice is the PC-only external WAV ingress task in `docs/DELIVERY-1B-Z-EXTERNAL-INGRESS-TASK.md`; the real Watch closed loop and ten-run acceptance remain locked.
 - The PM-reviewed Watch UI direction is frozen separately in `docs/WATCH-UI-Z-HANDOFF.md`; it is reference only until an explicit UI implementation slice is unlocked.
+- User sequencing decision (2026-08-29): keep UI out of Z3. Once Z3 is complete and PM-accepted, the next colleague-Z package will combine the frozen Watch UI implementation with the first real Watch → existing SayIt → focused input-box closure; do not dispatch that package early.
 
 ## Colleague Z quick start
 

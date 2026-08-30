@@ -16,6 +16,8 @@ Overall: Delivery 1A accepted. Delivery 1B Provider contract is MATCH after PM a
 
 Current external slice: Delivery 1B Z3 PC-only external WAV ingress, packaged in `docs/DELIVERY-1B-Z-EXTERNAL-INGRESS-TASK.md`, is ready for user handoff to colleague Z. Watch UI/product changes remain unauthorized. The real Galaxy Watch → Paste closed loop and ten-run acceptance remain locked until this slice passes PM review.
 
+Frozen sequencing decision (user, 2026-08-29): do not add UI work to Z3. After Z3 is complete and PM-accepted, the next colleague-Z task package will include implementation of the already reviewed Watch UI direction in `docs/WATCH-UI-Z-HANDOFF.md` together with the first real Galaxy Watch → existing SayIt → focused Windows input-box closure. The formal ten-run latency acceptance remains a separate final gate unless PM can verify it safely in that same device session.
+
 Z1 PM review (2026-08-29): scope control passed (only the three allowed documentation files changed), but the contract decision is NO-GO. The submitted design omits the required per-run Provider `connect(callbacks)` and explicit successful `start` before PCM, treats asynchronous native context capture as synchronous, leaks the JS reservation on Rust-side aborts, uses an unsafe 30-second JS watchdog, permits a lost post-201 handoff, and does not freeze the audio accounting required by History/timeouts. Repair instructions: `docs/DELIVERY-1B-Z-CONTRACT-REPAIR-1.md`.
 
 PM review decision (2026-08-29): **NO-GO** on the original submission. Repair instructions were frozen in `docs/DELIVERY-1A-D-REPAIR-1.md`; all six items are now repaired and pushed.

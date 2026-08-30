@@ -36,7 +36,7 @@ Only after PM manually accepts the received audio may the project unlock Deliver
 - The isolated source baseline and PM documents are prepared and pushed to the private `main` branch.
 - Delivery 1A was repaired, independently verified, and PM-accepted on `codex/review-watch-transport`.
 - The user confirmed the real received WAV by human playback.
-- Delivery 1B Z1 Provider contract gate has been executed by colleague Z on `codex/review-watch-pipeline` (base `5cc14b4`). The contract document is submitted and awaits PM review; no implementation is authorized yet.
+- Delivery 1B Z1 Provider contract revision 2 has been resubmitted by colleague Z on `codex/review-watch-pipeline` after PM Repair 1. It awaits PM re-review; no implementation is authorized yet.
 
 ## Colleague Z quick start
 
@@ -46,7 +46,9 @@ Only after PM manually accepts the received audio may the project unlock Deliver
 - Z1 output is documentation only. Do not modify product code until PM accepts the Provider contract.
 - Z must push the requested evidence and stop; no merge, tag, release, installer, or public-upstream push.
 
-## Delivery 1B Z1 contract evidence (Colleague Z, 2026-08-29)
+## Delivery 1B Z1 contract evidence (Colleague Z, 2026-08-29) — revision 1, superseded by Repair 1
+
+> Superseded: this entry describes the original submission (`525f0b2`), whose MATCH verdict, `connect → isReady → start` order claim, and single-side release design were corrected by PM Repair 1. Retained for audit; the authoritative record is the revision-2 entry below and the PM review in between.
 
 - Deliverable: `docs/DELIVERY-1B-PROVIDER-CONTRACT.md` (documentation only; base commit `5cc14b4c8658920cc9ca9b21ab1dcaf878f1a136` on `codex/review-watch-pipeline`). No product code, tests, dependencies, or build configuration changed.
 - Conclusion: **MATCH**. All six proposed audio-contract clauses are confirmed from source evidence on both sides — capture (`client/src/services/audio.ts`: 16 kHz target, mono, Int16 conversion, `bytes/2/16000` duration) and receiver validation (`client/src-tauri/src/watch_receiver/wav.rs`: PCM format 1, mono, 16,000 Hz, 16-bit, block-align/byte-rate checks).
@@ -69,6 +71,18 @@ The contract is not frozen yet:
 - Raw binary Tauri IPC remains an unverified dependency despite the unconditional `MATCH` verdict.
 
 Decision: Delivery 1B implementation remains locked. Colleague Z receives the documentation-only repair package `docs/DELIVERY-1B-Z-CONTRACT-REPAIR-1.md` and must stop after resubmission.
+
+## Delivery 1B Z1 contract revision 2 (Colleague Z, 2026-08-29) — resubmitted after Repair 1
+
+- Deliverable: `docs/DELIVERY-1B-PROVIDER-CONTRACT.md` revision 2 (documentation only; review base `8240d4a`). No product code, tests, dependencies, or build configuration changed. A §G checklist maps all seven repair items to exact contract sections.
+- Verdict: **CONDITIONAL MATCH**. The single condition is the Tauri v2 raw binary-IPC spike for the PCM handoff, frozen as the first stop/go gate of the implementation slice (§B.4, §E row 0). Pinned-version source evidence is recorded (`tauri 2.10.3`: `InvokeResponseBody::Raw`, `Response::new`, octet-stream dispatch at `src/ipc/protocol.rs:344`; injected `scripts/ipc-protocol.js:50-53` consumes non-JSON responses via `response.arrayBuffer()`; `@tauri-apps/api 2.10.1` `core.js:201-203` passthrough), including the postMessage-fallback hazard that motivates the spike. A base64 fallback for the full 10 MiB body is explicitly not authorized.
+- Repair 1.1: the frozen per-run lifecycle is now pre-flight `isReady()` → per-run `connect(buildProviderCallbacks())` → checked `start()` → `sendAudio*` → `stop()` (§A.2); the external run performs both indispensable steps, re-verifies reservation/run currency after each await, and no PCM moves before `start` succeeds, with per-stage rollback (§B.5).
+- Repair 1.2: truthful two-phase API (§B.2) — Phase A fully synchronous (checks + runId + reservation + the genuinely synchronous `captureActiveInsertionTarget`, `textInsertion.ts:248-276, 316-321`); Phase B is the bounded (3 s) asynchronous native capture (`bridge.getRecordingContext`, a Promise, `bridge.ts:127-132`) whose success is required before the admission response is accepted; capture failure → `500 context_capture_failed|context_capture_timeout`, no silent live-probe fallback.
+- Repair 1.3: one correlated abort operation, two idempotent requestId(+runId)-conditional halves, clearing the Rust gate, JS reservation/runId, pending promises, overlay/Esc state and the provider session across all nine trigger cases (§B.6 matrix), including durable-save failure and WebView reload.
+- Repair 1.4: the 30 s JS watchdog is removed; a Rust-owned lazy lease (`LEASE_MS = 300 s` = frozen `MAX_RECORDING_SEC`, against a derived ≈164 s legitimate worst case) plus boot-time `watch_gate_state()` reconciliation recover a gate orphaned by WebView reload without any JS timer (§B.7).
+- Repair 1.5: `201` is returned only after a bounded (10 s) post-save acknowledgement (`watch_run_started`) proving the saved PCM was obtained and validated, callbacks connected, and `provider.start` succeeded; failures answer non-2xx and abort both sides; `201` means transport/admission/session success, never transcription completion (§B.3 step 8).
+- Repair 1.6: the external run explicitly populates `recordedChunks`, `audioSentSamples`, sample-derived `wallTimeAtStopSec`, the processing-timeout input and the prompt/app/probe context fields; it never calls mic-only `stopCapture()`; the smallest shared finalize helper (`finalizeRecording`) is extracted from `stopRecording`'s tail for both paths (§B.5).
+- All five task stop-conditions remain not triggered (§D); revised sequences cover accepted, busy, abort matrix, reload recovery and successful final (§C); nine risks recorded (§F).
 
 ## Delivery 1A source/build evidence (Colleague D, 2026-08-29)
 

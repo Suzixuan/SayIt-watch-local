@@ -1,24 +1,29 @@
-# Delivery 1B — Z1 Provider Contract (frozen from source evidence)
+# Delivery 1B — Z1 Provider Contract (revision 2, post Repair 1)
 
-- Author: colleague Z (Z1 contract gate).
-- Status: submitted, awaiting PM review. Evidence-and-architecture gate only — no product code was changed in this slice.
-- Branch: `codex/review-watch-pipeline`, base commit `5cc14b4c8658920cc9ca9b21ab1dcaf878f1a136` (parent `fe096d7` = accepted Delivery 1A PM commit).
-- All line references are relative to the repository root at the base commit.
+- Author: colleague Z (Z1 contract gate, Repair 1 resubmission).
+- Status: submitted, awaiting PM re-review. Documentation repair only; product implementation remains locked.
+- Branch: `codex/review-watch-pipeline`. Review base of this revision: `8240d4a2a59de96608f1ec907fe50ba5f400467b`. Original Z submission under repair: `525f0b2d947f0d57abea820ab6b611971ddea72d`. Repair instructions: `docs/DELIVERY-1B-Z-CONTRACT-REPAIR-1.md`.
+- All line references are relative to the repository root at `8240d4a`. Pinned-dependency references cite the exact locked sources: `tauri 2.10.3` (`client/src-tauri/Cargo.lock`) resolved at `~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tauri-2.10.3/`, and `@tauri-apps/api 2.10.1` (`client/node_modules/@tauri-apps/api/`).
+- **Revision-2 corrections** (mapping table in §G): truthful per-run Provider lifecycle (Repair 1.1), two-phase sync/async reservation API (Repair 1.2), correlated two-sided abort (Repair 1.3), Rust-owned lease replacing the unsafe JS watchdog (Repair 1.4), post-save acknowledgement before `201` (Repair 1.5), explicit external audio accounting (Repair 1.6), and `CONDITIONAL MATCH` on the binary-IPC spike (Repair 1.7).
 
 ## 0. Verdict
 
-**MATCH.** The proposed external-audio feed (validated Watch WAV → raw PCM → active `TranscriptionProvider` → existing `onFinal` → History → Paste path) is implementable on top of the current source with additive changes only. Every proposed clause of the audio contract is confirmed by source evidence, and the required `409` admission boundary is designable without a second ASR path, without refactoring `RecorderOrchestrator`, and without any new focus-tracking machinery.
+**CONDITIONAL MATCH.**
+
+All six proposed audio-contract clauses remain confirmed by two-sided source evidence (§A.3), the `409` admission boundary is fully specified without a second ASR path, without refactoring `RecorderOrchestrator`, and without any new focus-tracking machinery, and every abort path now closes on both sides of the bridge.
+
+The single open condition is the PCM transfer mechanism (Repair 1.7): the design depends on Tauri v2 raw binary IPC. Source-level evidence for the pinned version is recorded in §B.4, but a **runtime spike is mandatory** and is frozen as the first stop/go gate of the implementation slice. Until that spike passes, the contract is CONDITIONAL. An undocumented base64 fallback for the full 10 MiB body is explicitly **not authorized**.
 
 Per-clause verdicts:
 
 | # | Proposed contract clause | Verdict |
 |---|---|---|
-| 1 | Raw PCM only, no WAV header, into `sendAudio` | **CONFIRMED** (capture path sends headerless PCM; the Watch WAV header is stripped once during ingress — §A.3) |
-| 2 | 16,000 Hz | **CONFIRMED** (both capture and receiver-side WAV validation enforce it) |
+| 1 | Raw PCM only, no WAV header, into `sendAudio` | **CONFIRMED** (capture path sends headerless PCM; the Watch WAV header is stripped exactly once, in Rust, during ingress — §A.3, §B.4) |
+| 2 | 16,000 Hz | **CONFIRMED** (capture and receiver-side WAV validation both enforce it) |
 | 3 | Mono | **CONFIRMED** (both sides enforce it) |
 | 4 | Little-endian signed i16 | **CONFIRMED** (both sides enforce it) |
-| 5 | `ArrayBuffer` chunks | **CONFIRMED** (`sendAudio(buffer: ArrayBuffer)`) |
-| 6 | Duration derived from `bytes / 2 / 16000` | **CONFIRMED** (orchestrator and capture code both compute exactly this) |
+| 5 | `ArrayBuffer` chunks | **CONFIRMED** at the Provider interface; delivery of the ingress payload as `ArrayBuffer` is the one CONDITIONAL item (§B.4) |
+| 6 | Duration derived from `bytes / 2 / 16000` | **CONFIRMED**, and now frozen as the external run's duration source (§B.5) |
 
 ---
 
@@ -26,271 +31,345 @@ Per-clause verdicts:
 
 ### A.1 `RecorderOrchestrator` singleton and run lifecycle
 
-- Module-level singleton: `client/src/services/recorder.ts:5` (`let orchestrator = new RecorderOrchestrator()`); every consumer goes through the exported wrappers in that file. There is exactly one orchestrator per WebView process.
-- Active provider is a module-level singleton too: `client/src/services/transcription/index.ts:13-14`, lazily created by `getProvider()` (lines 31-36), replaced wholesale by `switchProvider()` (lines 48-77, which disconnects the old provider first). The orchestrator reaches it via `get provider()` (`RecorderOrchestrator.ts:204`).
-- Run identity: a monotonically increasing `runSequence` with `activeRunId` pointing at the current generation (`RecorderOrchestrator.ts:126-127`); `runId = ++this.runSequence; this.activeRunId = runId` at lines 1351-1352. `isRunCurrent(runId)` (lines 258-260) is the stale-generation guard used at every async artifact boundary.
-- Idempotent teardown: `finishRun(runId)` (lines 262-275) clears `pendingHistoryArtifact` / `timedOutProcessingContext` only when they belong to that generation, and zeroes `activeRunId`. It is reached from every terminal path: cancel recording (834), cancel processing (881), `onDone` (1060), `onError` (1149), paste success (1262), fallback card (1298), empty final (2361), timeout-fallback history write (1990, 1995).
-- State machine: `'idle' | 'recording' | 'processing'` with the only transitions `idle→recording`, `recording→processing`, `recording→idle`, `processing→idle` (`types.ts:1`, `RecorderOrchestrator.ts:74-85`, enforced in `transition()` 655-668; invalid transitions are logged and rejected).
-- Run creation (`startRecording`, 1317-1648): synchronous preconditions at entry — `state === 'idle'`, `!startRecordingLock`, `!textInsertionInFlight`, `finalizingLateRunId === 0` (1318-1331) — then `provider.isReady()` (1334, not-ready → error card, no run created), then any timed-out leftover generation is discarded with `provider.cancel()` (1344-1349). The provider connect and mic capture run in parallel (1521-1572); `provider.start(promptOpts)` is sent only after both are ready (1580) and `transition('recording')` happens after it (1588).
-- Run finalization (`stopRecording`, 1801-2003): waits for capture setup (max 3 s, 1811-1819), stops capture, discards audio shorter than 0.5 s via `provider.cancel()` (1858-1865), otherwise calls `provider.stop({...})` (1876-1886), transitions to `processing` (1894), arms `processingCancelable` (1899) and the processing timeout (1901, 1907-2002).
-- Timeout: `computeProcessingTimeoutMs` (`recorder/helpers.ts:108-132`) = 15 s base + 500 ms/audio-second, capped +30 s; ≥30 s floor for non-server modes; cloud API clamped to ≤90 s. On timeout the orchestrator snapshots a `TimedOutProcessingContext` (1913-1922), returns to idle with `preserveLateFinalContext: true` (2001), and keeps a 15 s late-final grace window (`LATE_FINAL_GRACE_MS`, line 87). If no late final arrives within the grace, a fallback empty history entry with the saved audio is written for later re-identification (1935-1999).
+- Module-level singleton: `client/src/services/recorder.ts:5` (`let orchestrator = new RecorderOrchestrator()`); exactly one orchestrator per WebView process.
+- Active provider is a module-level singleton: `client/src/services/transcription/index.ts:13-14`, lazily created by `getProvider()` (31-36), replaced wholesale by `switchProvider()` (48-77). The orchestrator reaches it via `get provider()` (`RecorderOrchestrator.ts:204`).
+- Run identity: `runSequence`/`activeRunId` (`RecorderOrchestrator.ts:126-127`); `runId = ++this.runSequence; this.activeRunId = runId` (1351-1352). `isRunCurrent(runId)` (258-260) guards every async boundary.
+- Idempotent teardown: `finishRun(runId)` (262-275) is the single terminal funnel — reached from cancel recording (834), cancel processing (881), `onDone` (1060), `onError` (1149), paste success (1262), fallback card (1298), empty final (2361), and the timeout-fallback history write (1990, 1995).
+- State machine: `'idle' | 'recording' | 'processing'`, transitions `idle→recording`, `recording→processing`, `recording→idle`, `processing→idle` (`recorder/types.ts:1`, `RecorderOrchestrator.ts:74-85`, enforced at 655-668).
+- Run creation (`startRecording`, 1317-1648): synchronous preconditions at entry — `state === 'idle'`, `!startRecordingLock`, `!textInsertionInFlight`, `finalizingLateRunId === 0` (1318-1331); pre-flight `provider.isReady()` (1334, not-ready → error card, no run); leftover timed-out generation discarded with `provider.cancel()` (1344-1349); runId assigned (1351-1352).
+- Run finalization (`stopRecording`, 1801-2003): waits capture setup (max 3 s, 1811-1819), `stopCapture()` (mic-only, 1825), discards audio < 0.5 s via `provider.cancel()` (1858-1865), `provider.stop({...})` (1876-1886), `transition('processing')` (1894), `processingCancelable = true` (1899), processing timeout armed (1901, 1907-2002).
+- Timeout: `computeProcessingTimeoutMs` (`recorder/helpers.ts:108-132`) = 15 s base + 500 ms/audio-second capped at +30 s; ≥30 s floor for non-server modes; cloud API clamped ≤90 s. On timeout: `TimedOutProcessingContext` snapshot (1913-1922), `resetToIdle({ preserveLateFinalContext: true })` (2001), 15 s late-final grace (`LATE_FINAL_GRACE_MS`, line 87), then the grace-fallback history write (1935-1999).
 
-### A.2 `TranscriptionProvider` contract — real order and return semantics
+### A.2 `TranscriptionProvider` contract — real order and return semantics (corrected in revision 2)
 
 Interface: `client/src/services/transcription/types.ts:80-103`.
 
-| Method | Signature | Real semantics (evidence) |
-|---|---|---|
-| `connect` | `(callbacks) => Promise<void>` (84) | Resolves when the underlying transport is ready; `onReady` reports asr/llm capability (`ServerProvider.ts:18-65`). `BufferedProvider.connect` lets a subclass veto readiness — a falsy subclass hook result leaves `isReady() === false` (`BufferedProvider.ts:30-49`). Failure rejects; orchestrator retries `ensureConnection()` every 5 s (`RecorderOrchestrator.ts:1307-1313`). |
-| `isReady` | `() => boolean` (102) | Synchronous, no I/O. Server: WebSocket connected (`ServerProvider.ts:92-94`). Cloud API: cached `this.ready` flag (`CloudAPIProvider.ts:263-265`). Local: model selected **and** downloaded (`LocalProvider.ts:29-47` via `BufferedProvider`). |
-| `start` | `(opts) => boolean` (87) | Synchronous send of the session-start command with the full `StartOptions`; `false` means "connected but unusable" and the orchestrator treats it as a start failure (`RecorderOrchestrator.ts:1580-1583` → catch path 1629-1647). `ServerProvider.start` records `activeRunId = opts.runId` and resets it to 0 when the send fails (67-72). |
-| `sendAudio` | `(buffer: ArrayBuffer) => void` (93) | Fire-and-forget streaming of raw PCM Int16 chunks; documented as "流式，PCM Int16 ArrayBuffer" (`types.ts:92-93`). Stale chunks are dropped by the orchestrator's `isRunCurrent` guard before the provider ever sees them (`RecorderOrchestrator.ts:1526-1534`). |
-| `stop` | `(opts?) => boolean` (96) | Synchronous end-of-audio signal that triggers finalization (server: `sendStop`, `ServerProvider.ts:83-85`, `websocket.ts:506`). `StopOptions` may append `disableAi` (server-mode short-speech skip, `types.ts:58-73`) — it can only turn AI off, never on. |
-| `cancel` | `() => void` (90) | Immediate session teardown; underlying tasks may finish naturally but no further callbacks may surface — enforced in the server provider by zeroing `activeRunId`, which gates `onASR/onFinal/onDone/onError` (`ServerProvider.ts:32,40,54,60,74-77`). `cancel()` is valid in any state; server-mode cancels are followed by `ensureConnection()` to isolate a possibly stale socket (`RecorderOrchestrator.ts:854, 895, 1863, 1942`). |
-| `disconnect` | `() => void` (99) | Full teardown (transport closed; `BufferedProvider.disconnect` also cancels the session, `BufferedProvider.ts:81-82`). |
+**The true per-run lifecycle observed in `startRecording` is: pre-flight `isReady()` → per-run `connect(fresh callbacks)` → `start()` (checked) → `sendAudio*` → `stop()`.** Revision 1 froze this incorrectly as `connect → isReady → start`; the source says:
 
-Observed call order enforced by the orchestrator: `connect → isReady → start → sendAudio* → stop → (onASR? → onFinal → onDone?) | onError`, with `cancel`/`disconnect` legal at any point. Nothing in the source ever calls `start` twice without an intervening `cancel`.
+1. `provider.isReady()` pre-flight at `RecorderOrchestrator.ts:1334` (before any run state is touched).
+2. `await Promise.all([this.provider.connect(this.buildProviderCallbacks()), startCapture(...)])` at 1521-1572 — **`connect` is invoked every run with a fresh callbacks object**; the init-time preconnect (`ensureConnection`, 1307-1313) does not remove the per-run connect. `connect` resolves when the transport is ready (`ServerProvider.ts:18-65`) and `BufferedProvider.connect` lets a subclass veto readiness — a falsy hook result leaves `isReady() === false` (`BufferedProvider.ts:30-49`). Failure rejects; `ensureConnection` retries every 5 s outside a run.
+3. `const started = this.provider.start(promptOpts); if (!started) throw new Error('sendStart failed')` at 1580-1583 — `start` is a synchronous boolean send (`types.ts:87`; `ServerProvider.start` records `activeRunId = opts.runId` and resets it on send failure, `ServerProvider.ts:67-72`). **No audio is sent before `start` returns true**; a false return lands in the catch path (1629-1647) which stops capture, cancels the provider, finishes the run and resets to idle.
+4. `sendAudio(buffer: ArrayBuffer)` fire-and-forget per captured chunk (`types.ts:92-93`), driven by the capture `onData` callback with the `isRunCurrent` guard (1526-1534).
+5. `provider.stop({...})` only after capture has stopped and audio ≥ 0.5 s (1858-1886); `StopOptions` may append `disableAi` — it can only turn AI off, never on (`types.ts:58-73`).
+6. `cancel(): void` — immediate session teardown valid in any state (`types.ts:89-90`); the server provider zeroes `activeRunId` so late `onASR/onFinal/onDone/onError` are dropped at the provider boundary (`ServerProvider.ts:32, 40, 54, 60, 74-77`); server-mode cancels are followed by `ensureConnection()` (`RecorderOrchestrator.ts:854, 895, 1863, 1942`).
+7. `disconnect(): void` — full teardown (`BufferedProvider.ts:81-82` also cancels).
+8. `isReady(): boolean` — synchronous: server = WebSocket connected (`ServerProvider.ts:92-94`), cloud = cached flag (`CloudAPIProvider.ts:263-265`), local = model selected and downloaded (`LocalProvider.ts:29-47`).
+
+Consequence frozen for the external run (Repair 1.1): the external path **must** perform steps 2 and 3 — `await provider.connect(this.buildProviderCallbacks())` and a checked `provider.start(StartOptions)` — before the first `sendAudio`. A reservation alone starts nothing.
 
 ### A.3 Audio contract — confirm/reject from source evidence
 
-**CONFIRMED in full.** The Provider input is raw PCM, 16,000 Hz, mono, little-endian signed i16, delivered as `ArrayBuffer` chunks, with duration computed as `bytes / 2 / 16000`.
+**CONFIRMED in full.** Provider input is raw PCM, 16,000 Hz, mono, little-endian signed i16, as `ArrayBuffer` chunks, duration = `bytes / 2 / 16000`.
 
-Capture side (`client/src/services/audio.ts`):
+Capture side (`client/src/services/audio.ts`): `TARGET_SAMPLE_RATE = 16000` (21); the AudioWorklet resamples to that rate (72-124) and converts Float32 → Int16 with saturation (127-131), posting the transferable `int16.buffer` (133); mono — only `inputs[0]?.[0]` is read (80), fallback `createScriptProcessor(4096, 1, 1)` (291), source `channelCount: 1` (524); duration from bytes — `(totalPCMBytes / 2) / 16000` (340, 469), orchestrator `audioSentSamples / 16000` (`RecorderOrchestrator.ts:738-740`, samples accumulated at 1539).
 
-- `TARGET_SAMPLE_RATE = 16000` (line 21); the AudioWorklet `PCMProcessor` resamples the device input to that rate (lines 72-124) and converts Float32 → Int16 with `s * 32768 / s * 32767` saturation (127-131), posting the transferable `int16.buffer` (133).
-- Mono: only `inputs[0]?.[0]` is read (line 80); the ScriptProcessor fallback is created as `createScriptProcessor(4096, 1, 1)` (291) and the source node is pinned to `channelCount: 1` (524).
-- Duration from bytes: both the fallback and worklet paths log `pcmDurationSec = (totalPCMBytes / 2) / 16000` (340, 469); the orchestrator's own duration is `audioSentSamples / 16000` (`RecorderOrchestrator.ts:738-740`) where `audioSentSamples` accumulates `pcmFrame.length` (Int16 samples, 1539).
+Receiver side (`client/src-tauri/src/watch_receiver/wav.rs`): the 1A validator enforces PCM format 1 (120-122), mono (117-121, `CHANNELS = 1` line 18), 16,000 Hz (123-125, `SAMPLE_RATE` line 17), 16-bit (126-128), block align 2 / byte rate 32000 (129-136), non-empty even-length data chunk (140-149); `sample_count = data_size / 2`, `duration_ms = sample_count * 1000 / 16000` (152-154).
 
-Receiver side (`client/src-tauri/src/watch_receiver/wav.rs`): the Delivery 1A WAV validator enforces exactly the same envelope before anything is accepted — PCM format 1 (line 120-122), mono (119-121 area: `channels != CHANNELS` → error, with `CHANNELS = 1` at line 18), 16,000 Hz (123-125, `SAMPLE_RATE = 16_000` at line 17), 16-bit (126-128, `BITS_PER_SAMPLE = 16`), consistent block align (2) and byte rate (32000) (129-136), non-empty even-length data chunk (140-149). `WavInfo.sample_count = data_size / 2` and `duration_ms = sample_count * 1000 / 16000` (152-154) — i.e. the receiver already computes duration as bytes/2/16000.
-
-Consequence for ingress: a validated `received_watch.wav` data chunk **is** a valid `sendAudio` payload byte-for-byte; the only transformation required is dropping the RIFF container (header chunks) once. No resampling, no format conversion, no channel folding is ever needed on the PC.
+Consequence: a validated `received_watch.wav` data chunk **is** a valid `sendAudio` payload byte-for-byte; the only transformation is dropping the RIFF container once, in Rust. No resampling, conversion, or channel folding on the PC.
 
 ### A.4 Callback association and stale-result rejection
 
-- One callbacks object per run is built by `buildProviderCallbacks()` (`RecorderOrchestrator.ts:900-1154`) and re-supplied on every `connect` (1522). The provider (server mode) additionally filters callbacks through its own `activeRunId !== 0` check (`ServerProvider.ts:32, 40, 54, 60`), so results from a canceled session are dropped at the provider boundary as well.
-- Generation guards:
-  - `onPartialASR` — only while `state === 'recording'` (902-906).
-  - `onASR` (empty-result terminal) — only while `processing`, only if no final was handled yet, only for the current run (908-916).
-  - `onFinal` — only while `processing` (997), or through the late-final grace path which requires a still-valid `timedOutProcessingContext` within 15 s (`consumeTimedOutProcessingContext`, 2196-2207; grace check at 2204). Duplicate finals are rejected via `finalHandledInCurrentRun` (1021-1024).
-  - `onDone` — only while `processing`, no final handled, no insertion in flight (1054-1057).
-  - `onError` — requires `isRunCurrent` **and** state `recording|processing` (1064-1069); stale-session errors are logged and dropped.
-- Cancellation beats in-flight results: `cancelRecording`/`cancelProcessing` leave the recording state and invalidate the run **before any await** (825-835, 874-881), so a racing PTT-up or queued provider callback can only be dropped. Server-mode cancel also forces a socket reconnect so a late server frame cannot leak into the next generation.
+One callbacks object per run is built by `buildProviderCallbacks()` (`RecorderOrchestrator.ts:900-1154`) and supplied on every `connect` (1522); the server provider additionally filters callbacks through its own `activeRunId !== 0` check (`ServerProvider.ts:32-62`). Generation guards: `onPartialASR` only while `recording` (902-906); `onASR` (empty terminal) only `processing`, no final handled, current run (908-916); `onFinal` only `processing` (997) or the late-final grace path via `consumeTimedOutProcessingContext` (2196-2207, 15 s check at 2204), duplicates rejected via `finalHandledInCurrentRun` (1021-1024); `onDone` only `processing`, no final, no insertion in flight (1054-1057); `onError` requires `isRunCurrent` and `recording|processing` (1064-1069). Cancellation leaves the state and invalidates the run **before any await** (825-835, 874-881).
 
 ### A.5 Normal final → History → Paste (including the insertion probe)
 
-`onFinal` → `processFinalResult` (`RecorderOrchestrator.ts:2209-2384`), in order:
+`onFinal` → `processFinalResult` (`RecorderOrchestrator.ts:2209-2384`): generation guard (2215); context-aware output resolution (2222-2227); History first — subject to `historyEnabled` (2274) and `audioRetentionEnabled` (2279), audio chunks are saved via `saveRecordingAudio` from `context.audioChunks` (2281-2288) and one `addHistory` record written (2301-2328; `services/store.ts:326`); `history-updated` emitted (2333); then insertion — `textInsertionInFlight = true` (2370) → `handleTextInsertion` (2372 → 1158-1281), which uses **the probe snapshot carried by the run context** (`options.probeResult`, 1180-1181; captured once per run at `startRecording` via `captureActiveInsertionTarget` + `bridge.getRecordingContext` into `cachedProbeResult`, 1369-1391) and falls back to a live probe only if no snapshot exists (1181). Non-editable → fallback card (1224-1236, 1287-1303); editable → modifier settle wait (1239), `processingCancelable = false` + Esc disabled (1242-1246), `pasteService.pasteText(text, probe, cachedProtectClipboard)` (1250; `PasteService.ts:54-71` → `bridge.pasteText`, `bridge.ts:112`); success → `finishRun` + idle (1262-1265); failure → fallback card (1271-1280).
 
-1. Generation guard (2215) and context-aware output resolution (2222-2227).
-2. History first: subject to `historyEnabled` (2274) and `audioRetentionEnabled` (2279), the run's audio chunks are saved via `saveRecordingAudio` (2283, `services/audioFileService.ts`) and one `addHistory` record is written with `asrText`, `llmText` (post-processed), durations, provider metadata and the history metadata snapshot (2301-2328; `addHistory` at `services/store.ts:326`). `bridge.emit('history-updated')` refreshes the UI (2333).
-3. Insertion second: `textInsertionInFlight = true` (2370) → `handleTextInsertion` (2372 → 1158-1281).
-4. `handleTextInsertion` uses **the probe snapshot carried by the run's context** (`options.probeResult`, 1180-1181) — the probe that was captured exactly once at `startRecording` time via `captureActiveInsertionTarget(...)` + `bridge.getRecordingContext(includeTextContext)` and stored in `this.cachedProbeResult` (1369-1391; comment at 196-199 explains why: insert into the window focused when the run started, not whatever is focused later). Only if no snapshot exists does it fall back to a live probe (1181).
-5. Non-editable target → fallback card (`showFallbackAndReset`, 1224-1236, 1287-1303). Editable target → modifier-key settle wait (1239, 2108-2118), `processingCancelable = false` + Esc disabled before the irreversible paste (1242-1246), then `pasteService.pasteText(text, probe, cachedProtectClipboard)` (1250; `PasteService.ts:54-71` wraps `bridge.pasteText`, `bridge.ts:112`). Success → `finishRun` + idle (1262-1265). Failure → fallback card (1271-1280).
+### A.5b Synchronous vs asynchronous capture APIs (evidence for the two-phase design)
 
-The probe is a one-shot capture per run. There is no continuous focus tracking in the pipeline: `startInsertionTargetTracking` exists only to serve the pre-probe used at recording start, and `textInsertion.ts:316` (`captureActiveInsertionTarget`) is invoked once per run.
+- `captureActiveInsertionTarget(...): TextInsertionAttempt` is **synchronous** — `textInsertion.ts:316-321` delegates to `captureResolvedTarget` (248-276), which is pure DOM: `getDeepActiveElement()` → `resolveInsertionTarget` → `storeCapturedTarget`, no `await`, no IPC.
+- `bridge.getRecordingContext(includeTextContext)` is **asynchronous** — `bridge.ts:127-132` returns `invoke<{ appContext, probe }>('get_recording_context', ...)`. It cannot complete inside a synchronous function. The orchestrator awaits it at `RecorderOrchestrator.ts:1377`.
+- `resolvePromptRouting(...)` is synchronous over cached settings — called without `await` at `RecorderOrchestrator.ts:1399-1407`.
+
+This is the factual basis for Phase A / Phase B in §B.2: revision 1 wrongly claimed both captures inside a fully synchronous reserve.
 
 ### A.6 State inventory an external run must respect
 
 | State | Meaning / evidence | External-run obligation |
 |---|---|---|
-| `idle` + provider ready | `state === 'idle'` and `provider.isReady()` (`RecorderOrchestrator.ts:1318, 1334`) | The only state from which a run (mic or external) may be created. |
-| busy (not ready) | `startRecording` refuses with a not-ready message when `!isReady()` (1334-1340); `notReadyMessage` is mode-specific (317-326) | `409` with reason `provider_not_ready`. |
-| busy (not idle) | `recording`/`processing` reject PTT-down (417-425); `startRecording` also refuses while `startRecordingLock`, `textInsertionInFlight`, or `finalizingLateRunId` (1318-1331) | `409` with reason `orchestrator_not_idle`. |
-| `recording` | Between `start` and `stop` (1588, 1894); mic chunks flow via `sendAudio` (1533-1534) | External run occupies `recording` for the (short) ingest, feeding validated PCM chunks. |
-| `processing` | After `stop` until final handling completes; Esc-cancelable while `processingCancelable` (1899, 858-896); canceled permanently before system paste (1244) | Reused verbatim; external runs get the same thinking overlay, Esc behavior and fallback cards. |
-| cancellation | `cancelRecording` (805-856) / `cancelProcessing` (858-896): run invalidated pre-await, history artifacts of the canceled generation discarded (`discardCanceledHistory`, 795-803) | External run must route any cancel through the same paths so artifacts and the admission gate are cleaned up. |
-| late final | 15 s grace after timeout; final is processed with `allowInsertionWhenIdle` (997-1019, 2196-2207); grace expiry discards the provider session and writes the fallback history entry (1935-1999) | No change; the gate must stay reserved until the grace path fully resolves (it ends in `finishRun`). |
-| timeout | `computeProcessingTimeoutMs` (helpers 108-132), armed at 1907 | No change. |
-| text insertion | `textInsertionInFlight` blocks new runs and `onDone` (1318-1331, 1057); timeout extends while insertion is active (1909-1912) | No change; external runs must set/clear it exactly as mic runs do (2370-2383). |
+| `idle` + provider ready + no reservation | `RecorderOrchestrator.ts:1318, 1334` | Only state from which a run may be created. |
+| busy (not ready) | `startRecording` refuses when `!isReady()` (1334-1340) | `409` `provider_not_ready`. |
+| busy (not idle) | `recording`/`processing` reject PTT-down (417-425); `startRecording` also refuses while `startRecordingLock`, `textInsertionInFlight`, `finalizingLateRunId` (1318-1331) | `409` `orchestrator_not_idle`. |
+| **reservation held (new, pre-run)** | Between admission and `transition('recording')` the state machine is still `idle`, so the **reservation**, not the state, is what blocks PTT. The design adds reservation checks to both `startRecording` (PTT down) and `stopRecording` (PTT up) entry guards — §B.2, §B.6 | PTT down/up are no-ops for the whole reservation lifetime. |
+| `recording` | Between `start` and `stop` (1588, 1894) | External run occupies it during ingest; **must not call mic-only `stopCapture()`** (§B.5). |
+| `processing` | After `stop` until final handling; Esc-cancelable while `processingCancelable` (1899, 858-896); permanently closed before system paste (1244) | Reused verbatim, including thinking overlay and Esc. |
+| cancellation | `cancelRecording` (805-856) / `cancelProcessing` (858-896); canceled-generation artifacts discarded (795-803) | External aborts route through the same paths plus the correlated release (§B.6). |
+| late final | 15 s grace (997-1019, 2196-2207); expiry → provider session discarded + fallback history entry (1935-1999) | No change; gate stays reserved until the grace path reaches `finishRun`. |
+| timeout | `helpers.ts:108-132`, armed at 1907; insertion in flight extends (1909-1912) | No change; timeout input is the external run's sample-derived duration (§B.5). |
+| text insertion | `textInsertionInFlight` blocks new runs and `onDone` (1318-1331, 1057) | Reused verbatim. |
 
 ### A.7 AI-cleanup disable setting and freezing `disableAi: true`
 
-- The setting key is **`aiEnabled`**: read at `RecorderOrchestrator.ts:572` (`getSetting('aiEnabled', false)`) into `cachedAiEnabled` (175, 590); written only through `stores/aiEnabled.ts` (`setAiEnabled` → `setSetting('aiEnabled', next)` + `setAiEnabledCache(next)`), with the tray toggle broadcast handled in the same store. There is also a per-run short-speech skip: `aiMinDurationSec` (177, 591, 1873-1875).
-- How a run disables AI today: `StartOptions.disableAi` (`transcription/types.ts:44`) is computed as `disableAi: !this.cachedAiEnabled` (1493, 1504) and, when AI is off, `systemPrompt` is deliberately omitted (`systemPrompt: this.cachedAiEnabled ? … : undefined`, 1492). Server mode may additionally append `disableAi` at stop time (`StopOptions.disableAi`, types 65; orchestrator 1876-1886) — the server runs AI right after ASR, so stop is the last decision point. Providers therefore already implement a fully data-driven AI-off path.
-- Freezing `disableAi: true` for an external Watch run: pass `disableAi: true` in **both** the external run's `StartOptions` and `StopOptions`, and omit `systemPrompt` — mirroring lines 1492-1493. No AI feature is deleted and the user's `aiEnabled` preference is neither read-modified nor persisted; the freeze is per-run, exactly like the existing short-speech skip. Provider selection (`getProvider()`) and provider code are untouched.
+- Setting key **`aiEnabled`**: read at `RecorderOrchestrator.ts:572` into `cachedAiEnabled` (175, 590); written only via `stores/aiEnabled.ts` (`setAiEnabled` → `setSetting('aiEnabled', next)` + `setAiEnabledCache`); per-run short-speech skip via `aiMinDurationSec` (177, 591, 1873-1875).
+- How a run disables AI today: `StartOptions.disableAi` (`transcription/types.ts:44`) computed as `disableAi: !this.cachedAiEnabled` (1493, 1504); when AI is off, `systemPrompt` is deliberately omitted (`systemPrompt: this.cachedAiEnabled ? … : undefined`, 1492); server mode may append `disableAi` at stop (`StopOptions.disableAi`, types 65; orchestrator 1876-1886) because the server runs AI right after ASR.
+- External run freeze: `disableAi: true` in **both** `StartOptions` and `StopOptions`, `systemPrompt: undefined` — mirroring 1492-1493 for a forced-false AI switch. The user's `aiEnabled` preference is never read-modified or persisted; providers already implement the fully data-driven AI-off path.
 
 ---
 
-## B. Required boundary design — race-safe `409` admission between the Rust receiver and the frontend Orchestrator
+## B. Required boundary design — race-safe `409` admission between the blocking Rust receiver and the frontend Orchestrator
 
-### B.1 Topology
+### B.1 Topology and surface
 
-The authoritative busy/ready state lives in the WebView (`RecorderOrchestrator` + `getProvider()`); the blocking receiver lives on its own Rust thread (`watch_receiver/mod.rs:21-44`, tiny_http accept loop, `server.rs:45-49`). The smallest boundary that gives the receiver a synchronous admission decision is a **one-shot admission request across the existing Tauri event/IPC bridge, with the decision made atomically inside a single synchronous JS task**.
+The authoritative busy/ready state lives in the WebView; the receiver is a blocking tiny_http accept loop on its own thread (`watch_receiver/mod.rs:21-44`, `server.rs:45-49`). The smallest synchronous decision channel is one admission request across the existing Tauri event/IPC bridge, decided atomically in JS (Phase A) and completed only after asynchronous preparation succeeds or fails closed (Phase B). All new Rust code is debug-only under the same `#[cfg(debug_assertions)]` gate as the receiver.
 
-New pieces (all debug-only, under the same `#[cfg(debug_assertions)]` gate as the receiver):
+Components:
 
-1. **Rust `AdmissionGate`** (`watch_receiver/admission.rs`, new, ~100 lines): `Arc<Mutex<GateState>>` with `Idle | Reserved { request_id: String }`, plus the pending oneshot reply slot. Registered as managed Tauri state; the receiver thread and the three new commands share it.
-2. **Receiver insertion point** in `handle_audio` (`server.rs:73-194`): exactly one new step between WAV validation (step 5, 154-164) and the durable save (step 6, 166-175). Everything before and after is unchanged.
-3. **Three new Tauri commands** (debug-only):
-   - `watch_admission_resolve(request_id, accepted)` — completes the receiver's blocking oneshot with the JS decision.
-   - `watch_admission_release(request_id)` — returns the gate to `Idle` (receiver save-failure path, run completion, watchdog).
-   - `watch_read_reserved_pcm(request_id)` — reads the durably saved `received_watch.wav`, strips the validated header, and returns the raw PCM data-chunk bytes plus `{ sampleRate: 16000, channels: 1, bitsPerSample: 16 }` as a **binary IPC response** (Tauri v2 raw-payload invoke → `ArrayBuffer`; no base64).
-4. **Two new Rust→JS events**: `watch://admission-request { requestId, bytes, sampleCount, durationMs }` and `watch://audio-ready { requestId }` (correlation key is the already-mandatory `X-Request-Id` UUID, `server.rs:82-105`).
-5. **JS ingress module** (`services/watchIngress.ts`, new, thin): listens for the two events, calls the three commands, and delegates into two small additive orchestrator methods.
-6. **Additive orchestrator surface** (`RecorderOrchestrator`):
-   - `tryReserveExternalRun(requestId): boolean` — **fully synchronous**: checks `state === 'idle'`, `!startRecordingLock`, `!textInsertionInFlight`, `finalizingLateRunId === 0`, `provider.isReady()`, no existing reservation; on success captures the insertion probe + app context once (`captureActiveInsertionTarget` + `bridge.getRecordingContext(false)`), creates the runId, sets `activeRunId`, and records `externalReservation = { requestId, runId }`. No `await` anywhere inside.
-   - `beginExternalRun(requestId, pcm: ArrayBuffer)` — async: transitions `idle→recording`, feeds the PCM in chunks through the same `sendAudio` path, then performs the `stopRecording` tail (`provider.stop({ disableAi: true, pttHoldMs: durationMs })`, `transition('processing')`, processing timeout, thinking overlay) — after which the ordinary `onFinal → History → Paste` machinery takes over unchanged.
-   - One added synchronous guard clause in `startRecording`'s existing precondition block (1318-1331): refuse when `externalReservation` is set.
-   - One hook in `finishRun` (262-275): when the finished generation is the external run, clear `externalReservation` and fire-and-forget `watch_admission_release(requestId)`. Because every terminal path (success, error, cancel, empty, timeout-fallback, late-final) funnels through `finishRun` (§A.1), this single hook keeps the gate consistent.
+1. **Rust `AdmissionGate`** (`watch_receiver/admission.rs`, new): `Arc<Mutex<GateState>>`, `Idle | Reserved { request_id: String, reserved_at: Instant }`, plus the two pending oneshot slots (admission, ack). Registered as managed Tauri state, shared by the receiver thread and all commands.
+2. **Events Rust→JS** (3): `watch://admission-request { requestId, bytes, sampleCount, durationMs }`; `watch://audio-ready { requestId }` (after durable save); `watch://run-abort { requestId, reason }` (receiver-initiated abort).
+3. **Commands JS→Rust** (5):
+   - `watch_admission_resolve(requestId, accepted, reason?)` — completes the admission oneshot; `accepted=false` moves the gate to `Idle`.
+   - `watch_run_started(requestId)` — the post-save acknowledgement; completes the ack oneshot → receiver responds `201`.
+   - `watch_run_aborted(requestId, reason)` — JS-initiated correlated abort: completes any pending oneshot with failure (→ non-2xx HTTP), moves the gate to `Idle`.
+   - `watch_read_reserved_pcm(requestId)` — returns the saved WAV's data chunk as raw bytes via binary IPC (§B.4) plus `{ sampleRate: 16000, channels: 1, bitsPerSample: 16, sampleCount }`.
+   - `watch_gate_state()` — boot-time reconciliation (reload recovery, §B.7).
+4. **Additive orchestrator surface** (`RecorderOrchestrator`): `tryReserveExternalRun(requestId): boolean` (Phase A, synchronous), `prepareExternalRun(requestId): Promise<boolean>` (Phase B), `beginExternalRun(requestId, pcm: ArrayBuffer): Promise<void>` (connect → start → feed → finalize), `abortExternalRun(requestId, reason)`; one reservation guard clause in `startRecording`'s existing entry block **and** one in `stopRecording`'s entry; one `finishRun` hook releasing the reservation.
+5. **JS ingress module** (`services/watchIngress.ts`, new, thin): event listeners, command wrappers, boot-time `watch_gate_state()` reconciliation. No watchdog timer anywhere in JS (Repair 1.4).
 
-### B.2 Atomicity argument
+### B.2 Two-phase reservation (Repair 1.2) — truthful sync/async split
 
-- **JS-side check-and-reserve is one macrotask.** The WebView event loop is single-threaded; `tryReserveExternalRun` contains no `await`, so a PTT-down event (a separate macrotask, `RecorderOrchestrator.ts:407-426`) can never interleave between the busy/ready check and the reservation. The mirror-image guard added to `startRecording` closes the reverse race (external reservation held → PTT refused) at its existing synchronous entry block. The two race directions the task names are therefore structurally eliminated, not merely narrowed.
-- **Rust-side gate serializes everything else.** The receiver handles one request at a time (blocking accept loop, `server.rs:45-49`), so admission requests cannot pile up; the `Mutex<GateState>` additionally makes `Reserved` visible to the receiver thread, the commands, and (optionally) `/api/health` regardless of event ordering. A second upload arriving while a previous external run is still processing finds `Reserved` and gets `409` without touching the WebView.
-- **Fail-closed.** If the WebView does not answer the admission request within 5 s (busy loading a local model, suspended, crashed), the receiver times out and answers `409 {"error":"busy","detail":"bridge_timeout"}` — it never assumes ready, and never 201s. The same fail-closed rule covers `watch_admission_resolve` reporting a rejected decision.
-- **A JS-side watchdog** (e.g. 30 s, well above the 15 s late-final grace) releases a stale reservation if the post-201 handoff (`watch://audio-ready`) is lost, so a dead run can never wedge the gate shut.
+**Phase A — `tryReserveExternalRun(requestId): boolean`, fully synchronous and atomic.** No `await`, no IPC. Checks, in one task: `state === 'idle'`, `!startRecordingLock`, `!textInsertionInFlight`, `finalizingLateRunId === 0`, `provider.isReady()`, `externalReservation === null`. On success: `runId = ++runSequence`, `activeRunId = runId`, `externalReservation = { requestId, runId }`, and the synchronous in-process capture `captureActiveInsertionTarget(undefined, { preserveExistingOnFailure: true })` is stored (legitimately synchronous — `textInsertion.ts:248-276, 316-321`). Atomicity: the WebView event loop is single-threaded, so no PTT event can interleave between check and reservation; conversely the new reservation guard in `startRecording`'s existing synchronous entry block (1318-1331) blocks PTT-down for the whole reservation lifetime, and the same guard in `stopRecording`'s entry (1802) blocks PTT-up from hijacking the external run's `recording` phase. `pttToggle` delegates to those two guarded methods, so no third guard is needed.
 
-### B.3 Modified `handle_audio` order (only step 5.5 and one release path are new)
+**Phase B — `prepareExternalRun(requestId): Promise<boolean>`, asynchronous, while the reservation stays held.** Bounded at 3 s (`Promise.race` against a timeout — the race loser is not a watchdog, it is a one-shot bounded await, and its failure is an abort, not a release-and-hope):
 
-1. Bearer auth → `401` (unchanged, 75-78).
+1. `const ctx = await bridge.getRecordingContext(false)` — the native one-shot focus/app-context probe, invoked **exactly once** for the run (`includeTextContext` hard-false: AI is disabled for external runs, so editor text is never read — privacy boundary matches actual behavior, cf. `RecorderOrchestrator.ts:1374-1376`).
+2. Store `ctx.appContext` → `currentActiveAppContext`, `ctx.probe` → `cachedProbeResult` (the same fields mic runs use, so the `onFinal` snapshot at 1047 and the timeout snapshot at 1919-1921 need zero changes), and `resolvePromptRouting({...})` → `currentPromptResolution` (1399-1407 shape).
+3. After every `await`, re-verify `externalReservation?.requestId === requestId && isRunCurrent(runId)`; any mismatch → correlated abort (§B.6).
+
+**The receiver's admission oneshot is completed only when Phase B resolves.** Success → `watch_admission_resolve(accepted=true)`. Failure or 3 s timeout → `watch_admission_resolve(accepted=false, reason)` **and** the JS-side half of the correlated abort. Documented HTTP result for capture failure: the receiver answers **`500 {"error":"admission failed","detail":"context_capture_failed"|"context_capture_timeout","requestId":…}`** — not `409`, which stays reserved for busy/not-ready; both are non-2xx so the Watch retains its WAV for retry, and no disk write has occurred, so the previously accepted file is intact. A silent fallback to a later live probe is forbidden — it would violate the upload-arrival focus snapshot.
+
+### B.3 Corrected `handle_audio` order (Repairs 1.1, 1.2, 1.3, 1.5)
+
+1. Bearer auth → `401` (unchanged, `server.rs:75-78`).
 2. `X-Request-Id` UUID → `400` (unchanged, 82-105).
 3. Content-Type `audio/wav` → `400` (unchanged, 108-120).
-4. 10 MiB cap → `413` (unchanged, 124-148). Note the cap already accommodates the maximum run the pipeline accepts: `MAX_RECORDING_SEC = 300 s` (`recorder/types.ts:53`) × 32,000 B/s = 9.6 MiB < 10 MiB.
-5. WAV validation → `400` (unchanged, 154-164); guarantees PCM/mono/16 kHz/16-bit (§A.3).
-6. **NEW — admission:** emit `watch://admission-request`, block on the oneshot (≤5 s). Rejected / timeout → **`409`** `{"error":"busy","detail":"orchestrator_not_idle" | "provider_not_ready" | "bridge_timeout" | "already_reserved","requestId":…}`. Gate stays `Idle`; nothing was written to disk, so the previously accepted `received_watch.wav` remains intact and the Watch WAV is trivially retryable.
-7. Durable atomic save → `500` on failure (unchanged, 166-175); on failure the receiver additionally calls `watch_admission_release(request_id)` so the reserved run does not leak.
-8. **NEW — handoff:** emit `watch://audio-ready { requestId }` (safe to emit before responding: the file is already `sync_all`-ed by `save_atomically`, 239-271).
-9. `201` with the existing metadata body (unchanged, 179-193). The contract "201 only after durable save **and** acceptance" holds: acceptance (reservation) happened at step 6, the save at step 7.
+4. 10 MiB cap → `413` (unchanged, 124-148). `MAX_RECORDING_SEC = 300 s` (`recorder/types.ts:53`) × 32,000 B/s = 9.6 MiB < 10 MiB.
+5. WAV validation → `400` (unchanged, 154-164; guarantees §A.3).
+6. **Admission** (new): emit `watch://admission-request`, block on the oneshot ≤ **5 s**. Outcomes:
+   - rejected + reason `orchestrator_not_idle` | `provider_not_ready` | `already_reserved` → **`409 {"error":"busy","detail":…,"requestId":…}`**; gate stays/returns `Idle`.
+   - rejected + reason `context_capture_failed` | `context_capture_timeout` → **`500`** (§B.2); gate `Idle`.
+   - oneshot timeout (WebView dead or stuck) → **`409 {"error":"busy","detail":"bridge_timeout"}`**; gate `Idle`; fail-closed, never 201.
+7. **Durable atomic save** → `500` on failure (unchanged, 166-175) **plus receiver-initiated correlated abort** (`watch://run-abort {requestId, reason:"save_failed"}` + gate → `Idle`) so the JS reservation and runId are also cleared — Repair 1.3's original gap (release-only-on-Rust-side) is closed here and everywhere else by §B.6.
+8. **Post-save handoff + acknowledgement** (new, Repair 1.5): emit `watch://audio-ready {requestId}` (safe to emit before responding — the file is `sync_all`-ed by `save_atomically`, 239-271), then block on the ack oneshot ≤ **10 s**. On `audio-ready` the WebView runs `beginExternalRun` (§B.5) through `provider.start` success, then invokes `watch_run_started(requestId)`. Only then does the receiver respond **`201`** with the existing metadata body (179-193). Any preparation failure (PCM read, sampleCount mismatch, connect failure/timeout, `start` false/throw) or ack timeout → `watch_run_aborted` / receiver-initiated abort → **non-2xx** (`500 {"error":"run failed to start","detail":…}` or `500 {"error":"run start ack timeout"}`) so the Watch retains its WAV, and both sides abort. **`201` therefore means: transport + validation + durable save + admission + provider session established. It still does not mean transcription completion.** The impossible-in-revision-1 case "Watch received 201 but ASR never started" is excluded by construction.
+9. Post-`201`, the run proceeds independently of HTTP: feed → stop → `processing` → existing callbacks → History → Paste (§B.5, §C.1/C.5).
 
-### B.4 PCM transfer and chunking (cost accounting, no base64)
+Receiver-thread budget note: the accept loop blocks once per upload (5 s admission + 10 s ack worst case). Single-Watch debug use is serialized anyway (`server.rs:45-49`); this is accepted and documented.
 
-- Transfer path: validated bytes (already in receiver memory) → durable file → `watch_read_reserved_pcm` reads it back and returns the data-chunk slice via binary IPC. Copies: one disk read + one IPC transfer into the WebView, then the chunk slices handed to `sendAudio`. The RIFF header is stripped exactly once, in Rust, using offsets already proven by `wav::parse` — the WebView never parses the container.
-- Rejected alternative: carrying PCM in the admission-resolve command body (JSON/base64) would add ~33 % size inflation plus JSON serialization on up to 9.6 MiB, and would couple the admission decision to a multi-megabyte payload. Rejected alternative: keeping the WAV header and shipping it to `sendAudio` — violates the confirmed raw-PCM clause (§A.3).
-- Chunking: PC-internal chunk size is a free parameter; the contract permits reusing the capture chunk size. Recommendation: fixed 4096-sample (8 KiB) chunks — the same buffer the ScriptProcessor fallback uses (`audio.ts:290-291`) — with a `setTimeout(0)` yield between chunks so the ingest loop never starves the event loop (keeps `onPartialASR` streaming and the overlay responsive). ~1,200 sends for a 5-minute file; each `sendAudio` is an O(chunk) buffer handoff.
-- The Watch upload stays whole-file HTTP (no streaming); only PC-internal feeding is chunked.
+### B.4 PCM transfer — binary IPC, source evidence, and the mandatory spike (Repair 1.7)
 
-### B.5 Probe, reuse, and retryability
+Transfer path: validated bytes → durable file → `watch_read_reserved_pcm(requestId)` reads it back and returns the data-chunk slice (header stripped exactly once, in Rust, using offsets already proven by `wav::parse`). The WebView never parses the RIFF container.
 
-- **Probe exactly once at admission:** `tryReserveExternalRun` performs the same one-shot capture `startRecording` does (`captureActiveInsertionTarget` + `getRecordingContext`, 1369-1391) and stores it as the run's probe snapshot; it flows into `processFinalResult` via the run context (1047) exactly like a mic run's. `includeTextContext` is hard-false for external runs: AI is disabled for them, so editor text is never read (privacy boundary matches actual behavior, cf. comment at 1374-1376). No Target Manager, no Focus Tracking, no Target Lock — nothing new tracks the user.
-- **Full reuse:** the external run uses the active provider instance (`getProvider()`, `index.ts:31-36`), the same `buildProviderCallbacks()` object (900), the same History write (`processFinalResult` 2301-2328 — the Watch audio lands in history with `saveRecordingAudio` exactly like mic audio), the same `PasteService`/paste path, the same overlay states, Esc handling, late-final grace and timeout machinery. No second ASR path exists anywhere in the design.
-- **AI freeze:** `StartOptions.disableAi = true` + `StopOptions.disableAi = true` + omitted `systemPrompt` for the external run (§A.7).
-- **Failed admission leaves the WAV retryable:** admission precedes the save, so a `409` never overwrites the previously accepted file and no run artifacts are created; the Watch simply re-sends later. A post-admission save failure releases the gate and returns `500` (no partial run exists — the run is abandoned before `beginExternalRun` is ever called). If the run later fails mid-flight, the ordinary `onError`/cancel paths plus the `finishRun` hook tear everything down; no duplicate run can remain because admission is guarded by the same `state === 'idle'` precondition as mic runs.
+Pinned-version source evidence (documentation-phase evidence only — this is why the verdict is CONDITIONAL, not MATCH):
 
-### B.6 Request-ID and error crossing without secrets
+- Rust: `InvokeResponseBody::Raw(Vec<u8>)` and `impl From<Vec<u8>>` (`tauri-2.10.3/src/ipc/mod.rs:99-112`); `Response::new(body: impl Into<InvokeResponseBody>)` (200-205); raw responses are served with `mime::APPLICATION_OCTET_STREAM` (`src/ipc/protocol.rs:344`).
+- JS (injected runtime): `tauri-2.10.3/scripts/ipc-protocol.js:50-53` — responses whose content-type is neither `application/json` nor `text/plain` are consumed via `response.arrayBuffer()`. So on the custom-protocol path, `tauri::ipc::Response::new(bytes)` reaches `@tauri-apps/api`'s `invoke` as an **`ArrayBuffer` with no base64 and no JSON coercion** (`node_modules/@tauri-apps/api/core.js:201-203` forwards to `window.__TAURI_INTERNALS__.invoke`; delivery completes via `runCallback`, `ipc-protocol.js:55-57`).
+- Known hazard: if the custom protocol fails, the injected runtime **falls back to postMessage** (`ipc-protocol.js:58-67`), and the postMessage path serializes binary as a JSON number array (`scripts/process-ipc-message-fn.js:26-29`) — for a 9.6 MiB payload that is ~4× inflation and unacceptable. The fallback is observable (`console.warn`, `ipc-protocol.js:59-62`).
 
-- `X-Request-Id` (UUID, already mandatory and echoed end-to-end in the 201, `server.rs:80-105, 179-193`) is the single correlation key across HTTP, both events, all three commands, and every `addRuntimeEvent` log line. No new ID scheme is introduced.
-- Error bodies and log lines carry only: status code, fixed reason strings (`unauthorized`, `busy` + one of four fixed details, `storage failure`, …), the requestId, and numeric metadata (bytes, sampleCount, durationMs, sha256). Transcript text, PCM, tokens, editor text and the Authorization header are never logged — this preserves the existing receiver rule ("The token and Authorization header are never logged", `server.rs:9-11`) and the orchestrator's length-only logging (`RecorderOrchestrator.ts:1209, 2268`).
+**Frozen outcome (Repair 1.7 option b):** verdict is **CONDITIONAL MATCH**; the **binary-IPC spike is the first stop/go gate of the implementation slice** — a minimal isolated test on the pinned `tauri 2.10.3` + `@tauri-apps/api 2.10.1` proving a command returning `tauri::ipc::Response::new(Vec<u8>)` resolves as an `ArrayBuffer` of identical bytes for a ≥9 MiB payload, with the custom-protocol path asserted in use (no `customProtocolIpcFailed` fallback warning). Spike passes → contract auto-upgrades to MATCH for the transfer mechanism; spike fails → back to PM as MISMATCH on the transfer mechanism. An undocumented base64 fallback for the full 10 MiB body is **not authorized**; rejected alternatives on record: base64-in-JSON admission body (+33 % and double serialization for up to 9.6 MiB), shipping the WAV header to `sendAudio` (violates §A.3).
+
+Chunking: PC-internal chunk size is a free parameter; recommendation is fixed 4096-sample (8 KiB) chunks — the ScriptProcessor fallback buffer size (`audio.ts:290-291`) — with a `setTimeout(0)` yield between chunks so the ingest loop never starves the event loop. ~1,200 `sendAudio` calls for a 5-minute file. Watch upload remains whole-file HTTP.
+
+### B.5 External run body: lifecycle, audio accounting, shared finalization (Repairs 1.1, 1.6)
+
+`beginExternalRun(requestId, pcm)` runs on `audio-ready`, after Phase A+B succeeded:
+
+1. **Validate PCM**: non-empty, even byte length, `byteLength === sampleCount × 2` against the admission metadata. Mismatch → correlated abort, reason `pcm_mismatch`.
+2. **Reset the run fields exactly as `startRecording` does** (1450-1467): `finalHandledInCurrentRun = false`, `audioSentSamples = 0`, `wallTimeAtStopSec = 0`, `recordedChunks = []`, waveform/warning state untouched (no mic session exists).
+3. **`await provider.connect(this.buildProviderCallbacks())`** — the same per-run connect mic runs perform (1521-1522); fresh guarded callbacks so provider-side `activeRunId` filtering (§A.4) binds to this run. Re-verify reservation + run currency after the await; on failure → correlated abort, reason `provider_connect_failed`.
+4. **Re-verify `provider.isReady()`** (Repair 1.1 step 3). Not ready → correlated abort, reason `provider_not_ready_after_connect`.
+5. **`provider.start({ runId, disableAi: true, systemPrompt: undefined, aiMinDurationSec, clientMeta, appContext, hotwords, language })`** — checked boolean per mic runs (1580-1583). `false`/throw → correlated abort, reason `provider_start_failed`. `appContext` is Phase B's captured context; `textContext: null`; `streamingDisplay` follows the existing setting. No PCM has moved yet.
+6. `transition('recording')` (mirrors 1588) — from here the state machine itself blocks PTT-down; the reservation guard still blocks PTT-up (§B.2). Then `watch_run_started(requestId)` → receiver answers `201`.
+7. **Feed**: iterate `pcm` in 4096-sample chunks; per chunk: `recordedChunks.push(chunk.slice(0))` (mirrors 1533 — these are the copies `saveRecordingAudio` consumes in `processFinalResult`), `audioSentSamples += 4096` (mirrors 1539 — drives `getAudioDurationSec`, 738-740), `provider.sendAudio(chunk)`, yield (`setTimeout(0)`). Re-verify run currency per chunk; a lost run mid-feed aborts.
+8. **Minimum-duration rule** (mirrors 1858-1865): if `audioSentSamples / 16000 < 0.5` → `provider.cancel()`, `finishRun(runId)`, correlated release; no history entry (the Watch already got `201` — transport success; a <0.5 s recording legitimately produces nothing, same as mic).
+9. **Finalize via the smallest shared helper (Repair 1.6)**: extract `stopRecording`'s tail (1876-2002: `provider.stop` call → `transition('processing')` → `processingCancelable` → timeout arming → thinking overlay) into a private `finalizeRecording(runId, stopOpts)` used by **both** mic and external paths. `stopRecording` keeps its mic-only prologue: capture-ready wait (1811-1819), `stopCapture()` (1825), `restoreSystemMuteIfNeeded()` (1832), duration-ratio consistency check (1846-1857). The external path calls `finalizeRecording` **without ever touching `stopCapture`**. Before finalizing, the external path sets `wallTimeAtStopSec = audioSentSamples / 16000` — sample-derived truth, not a fake wall clock (mirrors 1836-1837 where mic runs store the PTT hold time; every consumer at 920, 1043, 1087, 1978 then reads the honest value). `stop` options: `{ pttHoldMs: sampleDerivedMs, disableAi: true }`; `audioStats` is omitted (mic-only meters; optional in `StopOptions`, `types.ts:66-72`). From here `onFinal → History → Paste`, `onError`, `onDone`, timeout, late-final and Esc behave identically to mic runs (§A.4-§A.6), with `context.audioChunks` = the external chunks → History audio reuse is real, not claimed.
+10. **Gate release**: the `finishRun` hook (262-275) fires on every terminal path; when the finished generation is the external run it clears `externalReservation` and invokes `watch_run_aborted(requestId, "run_finished")` (command name shared with abort; the gate returns to `Idle` regardless of outcome). Overlay during ingest: none (the Watch is the user's feedback surface; the listening ticker/bars are mic visuals); the `processing` phase shows the ordinary thinking/fallback overlay, so Esc-cancel of external processing works exactly like mic processing.
+
+### B.6 Correlated abort — both sides, every path (Repair 1.3)
+
+**One operation, two halves, idempotent and correlation-checked.** `abortExternalRun(requestId, reason, origin)`:
+
+- Rust half (`admission.rs`): only if `gate == Reserved{request_id}` (requestId match) → complete any pending admission/ack oneshot with failure, `gate = Idle`. Mismatched or already `Idle` → no-op + warn log. Never touches a newer reservation.
+- JS half (`watchIngress.ts` + orchestrator): only if `externalReservation?.requestId === requestId` (and runId matches when known) → clear `externalReservation`; invalidate the generation with `finishRun(runId)` semantics (clears `pendingHistoryArtifact` / `timedOutProcessingContext` / `activeRunId`, 262-275); cancel pending Phase-B/PCM promises via the post-await currency re-checks (§B.2, §B.5); if `connect` or `start` already succeeded → `provider.cancel()` and, for server mode, `ensureConnection()` (mirrors 854, 895); restore overlay/Esc state only if the processing overlay had been shown (`resetToIdle({ keepOverlay: false })` semantics). Mismatch → no-op + warn log.
+
+Trigger matrix (all nine required cases):
+
+| # | Trigger | Origin | HTTP outcome | Rust gate | JS reservation / runId | Provider session |
+|---|---|---|---|---|---|---|
+| 1 | Admission oneshot timeout (5 s) | Receiver | `409 bridge_timeout` | Idle (abort) | if JS alive: cleared via `watch://run-abort`; if dead: gate already clean | none reached |
+| 2 | Phase B capture failure / 3 s timeout | JS | `500 context_capture_failed / timeout` | Idle via `resolve(rejected)` | cleared by JS half | never connected |
+| 3 | Durable-save failure | Receiver | `500 storage failure` | Idle (abort + `watch://run-abort`) | cleared via event | never connected |
+| 4 | PCM read / `pcm_mismatch` | JS | `500 run failed to start` (via `watch_run_aborted`) | Idle | cleared by JS half | never connected |
+| 5 | `provider.connect` failure / timeout | JS | `500 run failed to start` | Idle | cleared | never established |
+| 6 | `provider.start` false / throw | JS | `500 run failed to start` | Idle | cleared | `cancel()` + server reconnect |
+| 7 | Ack timeout (10 s) | Receiver | `500 run start ack timeout` | Idle (abort + `watch://run-abort`) | cleared via event | `cancel()` if connected |
+| 8 | WebView reload (any phase) | Environment | in-flight POST fails with the oneshot timeouts above | reclaimed by lease / boot reconciliation (§B.7) | JS state vanishes with the WebView | Rust side has no session; nothing to cancel |
+| 9 | Stale / mismatched requestId | Any | unchanged for the live request | no-op + warn | no-op + warn | untouched |
+
+Post-`201` failures (stop false/throw, provider error, cancel) are **run failures**, not admission failures: they are handled by the existing error paths (error history entry, fallback card, timeout machinery) and still end in `finishRun` → gate release. No HTTP response remains to fix; the Watch's `201` correctly recorded transport/admission success.
+
+### B.7 Rust-owned lease and WebView-reload recovery (Repair 1.4)
+
+The revision-1 30 s JS watchdog is **removed**. It was wrong twice: 30 s is below the legitimate run lifetime (processing timeout alone reaches 90 s on cloud mode, plus the 15 s late-final grace), and a WebView-owned timer dies with the WebView it is meant to police.
+
+Replacement — a Rust-owned, lazily-evaluated lease inside `AdmissionGate`:
+
+- `Reserved { reserved_at }` carries the reservation timestamp. `LEASE_MS = 300_000` — exactly `MAX_RECORDING_SEC × 1000` (`recorder/types.ts:53`), a frozen project constant.
+- Derivation of the legitimate upper bound: admission oneshot 5 s + Phase B 3 s + durable save ≈1 s + prepare/ack 10 s + feed ≤10 s + processing timeout ≤90 s (cloud cap, `helpers.ts:108-132`) + late-final grace 15 s + insertion/fallback margin 30 s ≈ **164 s < 300 s**. A healthy run can never be lease-reclaimed.
+- Evaluation points (lazy — the blocking receiver needs no timer thread): (a) every new admission attempt — if `Reserved` and older than `LEASE_MS`, log the reclamation, release, and continue with the fresh admission (self-healing without failing the new upload); (b) `watch_gate_state()` at WebView boot.
+- **Reload recovery without assuming any JS timer runs**: when the WebView reloads, JS state (reservation, runId) vanishes and Rust may hold `Reserved` forever. Recovery has two independent layers: (1) at boot, `watchIngress` calls `watch_gate_state()`; a `Reserved` gate with no matching local reservation is orphaned → the JS side issues `watch_run_aborted(requestId, "orphaned_after_reload")` → gate `Idle`; (2) if JS never boots, the lease at the next admission attempt reclaims the gate. A reload mid-run loses that run's audio only in the sense that the in-flight ASR dies; the durable `received_watch.wav` persists on disk and the Watch-side WAV remains (the upload had already been saved), so nothing is corrupted — the abort simply ends the run without transcription, consistent with "201 ≠ transcription completion".
+
+### B.8 Probe, reuse, retryability, and no new tracking
+
+- **Probe exactly once at Watch upload admission**: Phase A's synchronous in-process capture + Phase B's single native `getRecordingContext(false)`; both stored into the same fields mic runs use (`cachedProbeResult`, `currentActiveAppContext`, snapshot into the run context at `onFinal`/timeout). No Target Manager, no Focus Tracking, no Target Lock, no second probe later in the run.
+- **Full reuse**: active provider instance (`getProvider()`, `index.ts:31-36`), the same `buildProviderCallbacks()` object, the same History write (`processFinalResult` 2301-2328), the same `PasteService`/paste path, the same overlay/Esc/timeout/late-final machinery. No second ASR path.
+- **AI freeze**: `disableAi: true` in start and stop, `systemPrompt: undefined` (§A.7).
+- **Failed admission leaves the WAV retryable**: admission precedes save; `409`/`5xx` never touch disk, so the previously accepted file survives; post-admission failures respond non-2xx and abort cleanly on both sides (§B.6). No partial or duplicate run can remain — the run only exists after `provider.start` success, and every teardown funnels through `finishRun`.
+- **Request-ID and error crossing without secrets**: `X-Request-Id` (UUID, mandatory and echoed end-to-end, `server.rs:80-105, 179-193`) is the single correlation key across HTTP, all three events, all five commands, and every log line. Error bodies/log lines carry only fixed reason strings, the requestId, and numeric metadata. Transcript text, PCM, tokens, editor text, and the Authorization header are never logged (preserves `server.rs:9-11` and the length-only logging at `RecorderOrchestrator.ts:1209, 2268`).
 
 ---
 
-## C. Ordered event lists (sequence diagrams)
+## C. Ordered event sequences (revised — each shows Rust gate, JS reservation/runId, capture, Provider order, save + ack, HTTP timing, cleanup owner)
 
 ### C.1 Accepted request
 
 ```
-Watch          Receiver(Rust)                    Gate            WebView(JS)
-  |  POST /api/watch/audio  |                      |                 |
-  |------------------------->| auth/id/type/size    |                 |
-  |                          | wav::parse OK        |                 |
-  |                          |--- admission-request (event) --------->|
-  |                          |                      |<-- tryReserveExternalRun (sync):
-  |                          |                      |    idle? ready? no reservation?
-  |                          |                      |    probe captured once, runId assigned,
-  |                          |                      |    externalReservation set
-  |                          |<-- resolve(accepted) (command)         |
-  |                          | Reserved{requestId}  |                 |
-  |                          | save_atomically OK   |                 |
-  |                          |--- audio-ready (event) ---------------->|
-  |                          |                      |                 | watch_read_reserved_pcm
-  |<-------- 201 {requestId, bytes, sampleCount, durationMs, sha256}   | (binary PCM back)
-  |                          |                      |                 | beginExternalRun:
-  |                          |                      |                 |   idle→recording, sendAudio*,
-  |                          |                      |                 |   stop(disableAi) → processing
-  |                          |                      |                 | onFinal → History → Paste
-  |                          |                      |<-- release -----| (finishRun hook → Idle)
+Watch        Receiver(Rust)                    Gate                    WebView(JS)
+ | POST /api/watch/audio ->| auth/id/type/size OK                         |
+ |                         | wav::parse OK                                |
+ |                         | emit admission-request --+> Idle             |
+ |                         | block oneshot (<=5s)     |                   |
+ |                         |                          |  Phase A (SYNC):  |
+ |                         |                          |  checks + runId + externalReservation
+ |                         |                          |  + sync captureActiveInsertionTarget
+ |                         |                          |  Phase B (async, <=3s):
+ |                         |                          |  getRecordingContext(false) once
+ |                         |                          |  -> probe/appContext/routing stored
+ |                         |<------ resolve(accepted) --| Reserved{reqId} |
+ |                         | save_atomically OK       | Reserved          |
+ |                         | emit audio-ready --------+> Reserved        |
+ |                         | block ack oneshot(<=10s) |                   |
+ |                         |                          |  watch_read_reserved_pcm -> ArrayBuffer
+ |                         |                          |  validate byteLength == sampleCount*2
+ |                         |                          |  reset run fields (chunks/samples/wall)
+ |                         |                          |  await provider.connect(buildProviderCallbacks())
+ |                         |                          |  re-verify reservation+run; isReady()
+ |                         |                          |  provider.start({runId, disableAi:true, ...}) == true
+ |                         |                          |  transition('recording')
+ |                         |<------ run_started(ack) ---| Reserved        |
+ |<=== 201 {requestId, bytes, sampleCount, durationMs, sha256} ===      |
+ |                         |                          |  sendAudio*(4096-sample chunks, yield)
+ |                         |                          |  wallTimeAtStopSec = samples/16000
+ |                         |                          |  finalizeRecording -> provider.stop({disableAi:true})
+ |                         |                          |  -> processing -> onFinal
+ |                         |                          |  History -> Paste
+ |                         |<------ run_aborted("run_finished") ------| Idle
 ```
 
 ### C.2 Busy / not-ready request
 
 ```
-  |  POST /api/watch/audio   |                      |                 |
-  |------------------------->| auth/id/type/size OK |                 |
-  |                          | wav::parse OK        |                 |
-  |                          |--- admission-request (event) --------->|
-  |                          |                      |                 | tryReserveExternalRun (sync):
-  |                          |                      |                 |   state!=='idle' OR !isReady()
-  |                          |                      |                 |   OR reservation exists → false
-  |                          |<-- resolve(rejected) (command)         |
-  |<--- 409 {"error":"busy","detail":"orchestrator_not_idle"|"provider_not_ready"|"already_reserved","requestId":…}
-  |                          |                      |    (no disk write, previous WAV intact, retryable)
-  |
-  (bridge_timeout variant: receiver gives up after 5 s with no JS answer → 409 "bridge_timeout")
+ | POST /api/watch/audio ->| auth/id/type/size OK, wav OK                 |
+ |                         | emit admission-request --> Idle              |
+ |                         |                          |  Phase A (SYNC): state!=='idle' OR !isReady()
+ |                         |                          |  OR reservation exists -> false (no runId, no capture)
+ |                         |<------ resolve(rejected, reason)           |
+ |<=== 409 {"error":"busy","detail":"orchestrator_not_idle"|"provider_not_ready"|"already_reserved","requestId":…}
+ |          (no disk write; previous received_watch.wav intact; retryable)
+ |
+ | bridge_timeout variant: no JS answer within 5s -> 409 "bridge_timeout", gate stays Idle
 ```
 
-### C.3 Cancellation or failure after admission
+### C.3 Abort matrix (owners and both-side cleanup)
+
+See §B.6 table — nine triggers, each with: HTTP outcome, Rust gate owner (receiver abort / resolve(rejected) / JS `watch_run_aborted` / lease), JS reservation + runId owner (JS half, `watch://run-abort` handler, or vanishes with reload), and provider-session owner (`cancel()` + server reconnect only when `connect`/`start` had succeeded). Every entry is requestId(+runId)-conditional and idempotent; stale cleanups are no-ops with a warn log.
+
+### C.4 WebView reload recovery
 
 ```
-  (after 201, external run is in recording/processing)
-  case A – provider onError:
-    WebView: onError → error history entry (failReasonCode) → finishRun → resetToIdle
-           → finishRun hook: release(requestId) → gate Idle
-  case B – Esc during processing (processingCancelable):
-    WebView: cancelProcessing → provider.cancel, canceled-history discard → finishRun → release → Idle
-  case C – processing timeout, no late final:
-    WebView: timeout → idle (late context preserved) → 15 s grace expires
-           → provider.cancel + fallback history entry (audio saved for retry) → finishRun → release → Idle
-  case D – save fails after admission (before 201):
-    Receiver: release(requestId) → 500 {"error":"storage failure"}; no run was ever started
-  case E – WebView lost after 201 (audio-ready never handled):
-    WebView watchdog (30 s) → release(requestId) → gate Idle; that run's audio is lost (see Risks 5)
+ reload at any phase:
+   JS state (reservation/runId/callbacks) ceases to exist
+   in-flight POST: admission or ack oneshot expires -> 409 bridge_timeout / 500 ack timeout
+     receiver aborts its half (gate -> Idle)
+   if gate somehow remains Reserved:
+     (1) on next WebView boot: watch_gate_state() -> Reserved but no local reservation
+         -> watch_run_aborted(requestId, "orphaned_after_reload") -> Idle
+     (2) if JS never boots: next admission attempt finds lease expired (>=300s)
+         -> log reclamation -> release -> proceed with fresh admission
+   durable received_watch.wav persists on disk; no corruption; no ghost run can start
 ```
 
-### C.4 Successful `onFinal → History → Paste` completion
+### C.5 Successful `onFinal → History → Paste` (unchanged machinery, external inputs)
 
 ```
-  WebView: onFinal(FinalResult)
-    → generation + duplicate guards (finalHandledInCurrentRun, isRunCurrent)
-    → processFinalResult:
+ WebView: onFinal(FinalResult)
+   -> generation + duplicate guards
+   -> processFinalResult:
         historyEnabled/audioRetentionEnabled checks
-        → saveRecordingAudio(recordId, externalChunks)   (Watch audio in history, same as mic)
-        → addHistory({asrText, llmText, durations, providerMeta, appMeta})
-        → history-updated event
-    → textInsertionInFlight = true
-    → handleTextInsertion(probe snapshot from admission):
-        probe.editable? → modifier settle wait → Esc disabled → pasteText(text, probe, protectClipboard)
-        → ok:     finishRun → release(requestId) → Idle
-        → failed: fallback card (copy/dismiss) → finishRun → release(requestId) → Idle
+        -> saveRecordingAudio(recordId, externalChunks)     (recordedChunks: §B.5 step 7)
+        -> addHistory({asrText, llmText, durationSec: wallTimeAtStopSec (= samples/16000),
+                       audioDurationSec, providerMeta, appMeta})
+        -> history-updated
+   -> textInsertionInFlight = true
+   -> handleTextInsertion(probe snapshot from admission):
+        editable? -> modifier settle -> Esc disabled -> pasteText(text, probe, protectClipboard)
+        ok:     finishRun -> gate release ("run_finished") -> Idle
+        failed: fallback card -> finishRun -> gate release -> Idle
 ```
 
 ---
 
 ## D. Stop-condition evaluation (task §Stop conditions)
 
-1. "Provider input is not raw 16 kHz mono LE i16 PCM" — **Not triggered** (§A.3: both capture and `wav.rs` enforce exactly this envelope).
-2. "A normal run cannot be created without bypassing or substantially refactoring `RecorderOrchestrator`" — **Not triggered**: the design adds one sibling entry method pair, one guard clause, and one `finishRun` hook. The state machine, callback wiring, History/Paste flow and timeout machinery are reused untouched.
-3. "`onASR/onFinal` cannot safely reuse the current History/Paste path" — **Not triggered** (§A.4, §A.5): external runs are indistinguishable from mic runs downstream of `start`.
-4. "Exact 409 admission requires a new second Provider, direct `local_transcribe`, or duplicated ASR/History/Paste logic" — **Not triggered** (§B): the gate consults the existing singletons; no provider is created and no pipeline logic is duplicated.
-5. "The proposed bridge introduces a focus tracker, persistent target lock, Watch streaming, or release HTTP receiver" — **Not triggered** (§B.5): one-shot probe at admission; whole-file HTTP; receiver remains debug-only.
+1. "Provider input is not raw 16 kHz mono LE i16 PCM" — **Not triggered** (§A.3).
+2. "A normal run cannot be created without bypassing or substantially refactoring `RecorderOrchestrator`" — **Not triggered**: two sibling entry methods, one extracted shared finalize helper inside the same class, two guard clauses, one `finishRun` hook. State machine, callback wiring, History/Paste and timeout machinery untouched.
+3. "`onASR/onFinal` cannot safely reuse the current History/Paste path" — **Not triggered** (§A.4-§A.5, §B.5 step 9).
+4. "Exact 409 admission requires a new second Provider, direct `local_transcribe`, or duplicated ASR/History/Paste logic" — **Not triggered** (§B): the gate consults the existing singletons; the external run uses the same provider instance and the shared finalize helper.
+5. "The proposed bridge introduces a focus tracker, persistent target lock, Watch streaming, or release HTTP receiver" — **Not triggered** (§B.8).
 
 ---
 
 ## E. Minimal implementation file list proposed for the next Z slice
 
-| File | Change |
-|---|---|
-| `client/src-tauri/src/watch_receiver/admission.rs` | **New.** `AdmissionGate` (`Idle`/`Reserved{request_id}`), oneshot plumbing, release semantics; unit tests (accept/reject/timeout/double-resolve/stale-release). |
-| `client/src-tauri/src/watch_receiver/server.rs` | **Modify.** Insert admission step 5.5 + `audio-ready` emit + release-on-save-failure; add `409`/release integration tests alongside the existing ones. |
-| `client/src-tauri/src/main.rs` | **Modify (debug-only).** Register the gate as managed state; pass a handle to the receiver thread. |
-| `client/src/services/watchIngress.ts` | **New.** Event listeners (`watch://admission-request`, `watch://audio-ready`), command wrappers, watchdog. |
-| `client/src/services/recorder/RecorderOrchestrator.ts` | **Modify (additive).** `tryReserveExternalRun`, `beginExternalRun`, one guard clause in `startRecording`, one hook in `finishRun`. |
-| `client/src/services/recorder.ts` | **Modify.** Thin delegation for the two new entry points. |
-| Vitest additions | Reserve-atomicity (PTT-vs-admission interleave via mocked macrotasks), ingest→stop→final ordering, gate release on every terminal path. |
+| Order | File | Change |
+|---|---|---|
+| **0 (stop/go gate)** | isolated spike (outside product code) | Binary-IPC spike on pinned `tauri 2.10.3` / `@tauri-apps/api 2.10.1` per §B.4. Fail → back to PM (MISMATCH on transfer). Pass → contract upgrades to MATCH. |
+| 1 | `client/src-tauri/src/watch_receiver/admission.rs` | **New.** `AdmissionGate` (`Idle`/`Reserved{request_id, reserved_at}`), two oneshots, lease, correlated abort; unit tests (accept/reject/timeout/double-resolve/stale-id/lease-reclaim). |
+| 2 | `client/src-tauri/src/watch_receiver/server.rs` | **Modify.** Insert admission step 6, save-failure abort, audio-ready + ack oneshot, `201`-after-ack; integration tests for the full §B.3 order and every §B.6 row. |
+| 3 | `client/src-tauri/src/main.rs` | **Modify (debug-only).** Register gate state; pass handle to receiver thread. |
+| 4 | `client/src/services/watchIngress.ts` | **New.** Event/command plumbing, boot-time `watch_gate_state()` reconciliation, `abortExternalRun` JS half. No timers. |
+| 5 | `client/src/services/recorder/RecorderOrchestrator.ts` | **Modify (additive).** Phase A/B methods, `beginExternalRun` per §B.5, extract `finalizeRecording` from `stopRecording`'s tail (1876-2002), reservation guards in `startRecording` and `stopRecording`, `finishRun` release hook. |
+| 6 | `client/src/services/recorder.ts` | **Modify.** Thin delegation. |
+| 7 | Vitest + Rust tests | Reserve atomicity (PTT-vs-admission interleave), §B.5 field accounting, §B.6 matrix, mic-path regression (finalize extraction is behavior-preserving). |
 
 Not touched: any `TranscriptionProvider*` file, History/store, `PasteService`, text insertion, AI, settings, update/backup/storage-security, watch app, release builds.
 
 ---
 
-## F. Risks and unanswered questions
+## F. Risks and open questions (revised)
 
-1. **Bridge latency on the hot path.** Admission depends on one WebView round-trip (5 s timeout, fail-closed). While the WebView is busy (e.g. loading a local model), uploads get `409` even though the receiver itself is healthy. Accepted trade-off; the Watch can retry.
-2. **Provider mode switch during a reserved run.** `switchProvider` disconnects the old provider unconditionally (`index.ts:48-77`) — a pre-existing hazard for mic runs in `recording`/`processing` too. Unchanged by Z1; recommended follow-up (out of scope): defer mode switches while not idle.
-3. **Watch-side retry semantics.** A Watch retry after a `201` (but before completion) gets `409` and stays retryable afterwards; a retry after full completion would be admitted as a **new** run (duplicate transcript). Suppression beyond the busy window is out of scope for Z1 — PM should confirm the Watch app only retries on transport errors, not on success.
-4. **Single-slot storage.** `received_watch.wav` is one file, atomically replaced (`server.rs:166-175`); a second Watch is out of scope, same as Delivery 1A.
-5. **Lost post-201 handoff** (WebView reloaded between reservation and `audio-ready`): the watchdog releases the gate, but that run's audio is lost (the slot will be overwritten by the next accepted upload). If PM wants stronger guarantees, the receiver could reject new uploads while `Reserved` past a longer deadline — cost: a wedged gate on a dead WebView. Left as a PM decision.
-6. **Binary IPC verification.** `watch_read_reserved_pcm` relies on Tauri v2 raw binary responses (no base64) for an up-to-9.6 MiB payload. This must be verified early in the implementation slice against the pinned Tauri version; fallback (chunked base64 commands) is documented with its +33 % cost but should not be needed.
-7. **`/api/health` `asrReady:false`** is hardcoded (`server.rs:69`). Exposing the gate's `Idle`/`Reserved` state as a new field would be a cheap diagnostic, but changes the health contract — left to PM.
-8. **Overlay UX for external runs.** Reusing the pipeline means Watch runs show the same thinking/canceled/fallback overlay as mic runs. Assumed desirable (consistency + Esc cancel works); PM may prefer a distinct indicator later.
-9. **Local mode readiness.** Admission's `provider.isReady()` covers the local model-downloaded case (`BufferedProvider.ts:87`); a 5-minute Watch WAV (9.6 MiB) plus a resident local model fits memory budgets, but end-to-end local-mode acceptance is device work outside Z1.
+1. **Binary IPC spike (the CONDITION).** Source evidence is strong (§B.4) but runtime behavior on the pinned toolchain — especially that the postMessage fallback never engages — must be proven by the implementation slice's first gate. Failure returns the contract to PM.
+2. **Receiver-thread blocking.** Each upload can hold the accept loop up to ~15 s (5 s admission + 10 s ack). Single-Watch debug use is serialized anyway; a second concurrent Watch is out of scope (same as 1A) and would queue.
+3. **Lease reclamation of a genuinely hung (not dead) WebView.** A run stuck ≥300 s would be reclaimed at the next admission attempt. Healthy worst case is ≈164 s, so this only fires on a hung or vanished WebView — accepted fail-safe, logged.
+4. **Watch-side retry semantics.** A retry after `201` (run still active) gets `409`; a retry after completion is a new run (duplicate transcript). Suppression beyond the busy window stays out of scope; PM should confirm the Watch retries only on transport errors.
+5. **`switchProvider` during a reserved run** disconnects the provider unconditionally (`index.ts:48-77`) — pre-existing hazard for mic runs too, unchanged by Z1; recommended follow-up: defer mode switches while not idle.
+6. **Single-slot storage.** `received_watch.wav` is one atomically-replaced file (`server.rs:166-175`); admission-before-save means a `409`/`5xx` never clobbers it, but each *accepted* upload replaces the previous sample (unchanged from 1A).
+7. **`/api/health` `asrReady:false`** is hardcoded (`server.rs:69`); exposing gate state is a cheap diagnostic but changes the health contract — PM decision.
+8. **Overlay UX.** External ingest is silent (no listening overlay); processing/fallback overlays are reused. Esc-cancel of external processing works; ingest (seconds) is not Esc-cancelable. PM may want a distinct "receiving watch audio" indicator later.
+9. **Local mode.** `isReady()` covers the model-downloaded case; a 9.6 MiB WAV plus a resident local model fits memory budgets; end-to-end local-mode acceptance remains device work outside Z1.
 
 ---
 
-*End of Z1 contract document. Implementation is explicitly NOT authorized until the PM reviews and freezes this contract.*
+## G. Repair 1 checklist — correction → contract section
+
+| Repair item | Where addressed |
+|---|---|
+| 1.1 Real per-run lifecycle (`isReady` pre-flight → `connect(fresh callbacks)` → checked `start` → `sendAudio*` → `stop`); external flow performs both indispensable steps; no PCM before `start` success; rollback per stage | §A.2 (corrected freeze), §B.3 step 8, §B.5 steps 3-6, §C.1 |
+| 1.2 Two-phase API: synchronous reservation (Phase A) vs asynchronous native focus/context capture (Phase B); admission response accepted only after Phase B completes or fails closed; documented HTTP result for capture failure; no silent live-probe fallback | §A.5b (sync/async evidence), §B.2, §B.3 step 6, §C.1, §C.2 |
+| 1.3 Correlated abort clearing Rust gate + JS reservation + runId + pending promises + overlay/Esc + provider session; all nine trigger cases; requestId+runId conditional | §B.6 (operation + matrix), §B.3 steps 6-8, §C.3 |
+| 1.4 Remove 30 s JS watchdog; Rust-owned lease (300 s = `MAX_RECORDING_SEC`) derived from existing maxima; WebView-reload recovery without a JS timer | §B.7, §C.4 |
+| 1.5 No `201` before bounded post-save acknowledgement (PCM obtained+validated, callbacks connected, `start` succeeded, run owns reservation); timeout/failure → non-2xx + both-side abort; `201` ≠ transcription completion | §B.3 steps 8-9, §C.1, §F.5 rationale |
+| 1.6 External audio accounting: `recordedChunks`, `audioSentSamples`, sample-derived `wallTimeAtStopSec`, timeout input, prompt/app/probe context fields; no mic-only `stopCapture()`; smallest shared finalize helper | §A.6, §B.5 (steps 2, 7, 9), §E row 5 |
+| 1.7 Binary IPC resolved before unconditional MATCH: pinned-version source evidence recorded; verdict **CONDITIONAL MATCH**; spike = first stop/go gate; base64 fallback for the full body not authorized | §B.4, §E row 0, §F.1 |
+
+---
+
+*End of Z1 contract revision 2. Implementation remains explicitly unauthorized until the PM accepts the revised contract.*

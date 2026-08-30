@@ -1,19 +1,19 @@
-# Delivery 1B — Z1 Provider Contract (revision 3, post Repair 2)
+# Delivery 1B — Provider Contract (revision 3 + Z2 runtime resolution)
 
 - Author: colleague Z (Z1 contract gate).
-- Status: PM accepted as **CONDITIONAL MATCH** after Repair 2. The only unlocked implementation gate is the isolated binary-IPC spike in `docs/DELIVERY-1B-Z-BINARY-IPC-SPIKE-TASK.md`; external ingress remains locked.
+- Status: PM accepted as **MATCH** after independently accepting the Z2 packaged-Windows binary-IPC spike. The next unlocked slice is the PC-only external WAV ingress in `docs/DELIVERY-1B-Z-EXTERNAL-INGRESS-TASK.md`; Watch UI remains locked.
 - Branch: `codex/review-watch-pipeline`. Review base of this revision: `dd7efb233f3ab85a85c740cecbfe644078cc7827`. Revision 2 (`0d62130`) answered Repair 1 (`docs/DELIVERY-1B-Z-CONTRACT-REPAIR-1.md`); revision 3 answers Repair 2 (`docs/DELIVERY-1B-Z-CONTRACT-REPAIR-2.md`) and changes **only** the final-chunk sample accounting (§B.4, §B.5 steps 7-9, §C.1, §E row 7, §G). Every other Repair 1 decision of revision 2 is carried over verbatim.
 - All line references are relative to the repository root at `dd7efb2` (source lines cited in revision 2 were verified unchanged between `8240d4a` and `dd7efb2`; those two commits touch documentation only). Pinned-dependency references cite the exact locked sources: `tauri 2.10.3` (`client/src-tauri/Cargo.lock`) resolved at `~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tauri-2.10.3/`, and `@tauri-apps/api 2.10.1` (`client/node_modules/@tauri-apps/api/`).
-- **Revision-2 corrections** (mapping table in §G): truthful per-run Provider lifecycle (Repair 1.1), two-phase sync/async reservation API (Repair 1.2), correlated two-sided abort (Repair 1.3), Rust-owned lease replacing the unsafe JS watchdog (Repair 1.4), post-save acknowledgement before `201` (Repair 1.5), explicit external audio accounting (Repair 1.6), and `CONDITIONAL MATCH` on the binary-IPC spike (Repair 1.7).
+- **Revision-2 corrections** (mapping table in §G): truthful per-run Provider lifecycle (Repair 1.1), two-phase sync/async reservation API (Repair 1.2), correlated two-sided abort (Repair 1.3), Rust-owned lease replacing the unsafe JS watchdog (Repair 1.4), post-save acknowledgement before `201` (Repair 1.5), explicit external audio accounting (Repair 1.6), and the then-conditional binary-IPC gate (Repair 1.7). Z2 resolved that condition at runtime.
 - **Revision-3 correction** (Repair 2): exact final-chunk sample accounting — the feed loop counts every chunk by its actual `byteLength / 2` (never the configured maximum chunk size), asserts the totals against the admission metadata, and aborts before `provider.stop` on any mismatch (§B.4, §B.5 steps 7-9, §E row 7).
 
 ## 0. Verdict
 
-**CONDITIONAL MATCH.**
+**MATCH.**
 
 All six proposed audio-contract clauses remain confirmed by two-sided source evidence (§A.3), the `409` admission boundary is fully specified without a second ASR path, without refactoring `RecorderOrchestrator`, and without any new focus-tracking machinery, and every abort path now closes on both sides of the bridge.
 
-The single open condition is the PCM transfer mechanism (Repair 1.7): the design depends on Tauri v2 raw binary IPC. Source-level evidence for the pinned version is recorded in §B.4, but a **runtime spike is mandatory** and is frozen as the first stop/go gate of the implementation slice. Until that spike passes, the contract is CONDITIONAL. An undocumented base64 fallback for the full 10 MiB body is explicitly **not authorized**.
+The former PCM-transfer condition (Repair 1.7) is resolved. In the packaged Windows debug WebView2 runtime, pinned Tauri delivered a deterministic 9,438,418-byte `tauri::ipc::Response::new(Vec<u8>)` payload to JavaScript as an identical raw `ArrayBuffer`; the full SHA-256 and sentinels matched, and no `customProtocolIpcFailed`/postMessage fallback warning appeared. PM independently rebuilt and reran the native harness before accepting Z2. An undocumented base64 fallback for the full 10 MiB body remains explicitly **not authorized**.
 
 Per-clause verdicts:
 
@@ -23,7 +23,7 @@ Per-clause verdicts:
 | 2 | 16,000 Hz | **CONFIRMED** (capture and receiver-side WAV validation both enforce it) |
 | 3 | Mono | **CONFIRMED** (both sides enforce it) |
 | 4 | Little-endian signed i16 | **CONFIRMED** (both sides enforce it) |
-| 5 | `ArrayBuffer` chunks | **CONFIRMED** at the Provider interface; delivery of the ingress payload as `ArrayBuffer` is the one CONDITIONAL item (§B.4) |
+| 5 | `ArrayBuffer` chunks | **CONFIRMED** at the Provider interface and by the accepted packaged-Windows Z2 runtime proof (§B.4) |
 | 6 | Duration derived from `bytes / 2 / 16000` | **CONFIRMED**, and now frozen as the external run's duration source (§B.5) |
 
 ---
@@ -165,7 +165,7 @@ Pinned-version source evidence (documentation-phase evidence only — this is wh
 - JS (injected runtime): `tauri-2.10.3/scripts/ipc-protocol.js:50-53` — responses whose content-type is neither `application/json` nor `text/plain` are consumed via `response.arrayBuffer()`. So on the custom-protocol path, `tauri::ipc::Response::new(bytes)` reaches `@tauri-apps/api`'s `invoke` as an **`ArrayBuffer` with no base64 and no JSON coercion** (`node_modules/@tauri-apps/api/core.js:201-203` forwards to `window.__TAURI_INTERNALS__.invoke`; delivery completes via `runCallback`, `ipc-protocol.js:55-57`).
 - Known hazard: if the custom protocol fails, the injected runtime **falls back to postMessage** (`ipc-protocol.js:58-67`), and the postMessage path serializes binary as a JSON number array (`scripts/process-ipc-message-fn.js:26-29`) — for a 9.6 MiB payload that is ~4× inflation and unacceptable. The fallback is observable (`console.warn`, `ipc-protocol.js:59-62`).
 
-**Frozen outcome (Repair 1.7 option b):** verdict is **CONDITIONAL MATCH**; the **binary-IPC spike is the first stop/go gate of the implementation slice** — a minimal isolated test on the pinned `tauri 2.10.3` + `@tauri-apps/api 2.10.1` proving a command returning `tauri::ipc::Response::new(Vec<u8>)` resolves as an `ArrayBuffer` of identical bytes for a ≥9 MiB payload, with the custom-protocol path asserted in use (no `customProtocolIpcFailed` fallback warning). Spike passes → contract auto-upgrades to MATCH for the transfer mechanism; spike fails → back to PM as MISMATCH on the transfer mechanism. An undocumented base64 fallback for the full 10 MiB body is **not authorized**; rejected alternatives on record: base64-in-JSON admission body (+33 % and double serialization for up to 9.6 MiB), shipping the WAV header to `sendAudio` (violates §A.3).
+**Frozen outcome (Repair 1.7 option b), resolved by Z2:** the mandatory isolated test on pinned `tauri 2.10.3` + `@tauri-apps/api 2.10.1` passed in the packaged Windows debug WebView2 runtime. `tauri::ipc::Response::new(Vec<u8>)` resolved as a byte-identical raw `ArrayBuffer` for 9,438,418 bytes; expected/actual SHA-256 was `ebf783be13a56bd212a474803c6b8d6da391b10bc0cfc5721f9422c90c045750`, sentinels matched, and no `customProtocolIpcFailed` fallback warning appeared. PM independently rebuilt and reran the harness and accepted the gate. The transfer verdict is therefore **MATCH**. An undocumented base64 fallback for the full 10 MiB body is **not authorized**; rejected alternatives on record: base64-in-JSON admission body (+33 % and double serialization for up to 9.6 MiB), shipping the WAV header to `sendAudio` (violates §A.3).
 
 Chunking: PC-internal chunk size is a **target, not an invariant**. The feed loop slices `pcm` into consecutive even-length raw-PCM byte chunks of the configured target — recommended 4096 samples (8,192 bytes), the ScriptProcessor fallback buffer size (`audio.ts:290-291`) — and the **final slice carries the exact remainder** (`pcm.byteLength - consumedBytes`), which is guaranteed even because both the target and the validated total byte length are even (§B.5 step 1). With a `setTimeout(0)` yield between chunks the ingest loop never starves the event loop; ≈1,170 `sendAudio` calls for a 5-minute file, the last one generally short. Per-chunk sample accounting is exact — §B.5 step 7. Watch upload remains whole-file HTTP.
 
@@ -336,7 +336,7 @@ See §B.6 table — nine triggers, each with: HTTP outcome, Rust gate owner (rec
 
 | Order | File | Change |
 |---|---|---|
-| **0 (stop/go gate)** | isolated spike (outside product code) | Binary-IPC spike on pinned `tauri 2.10.3` / `@tauri-apps/api 2.10.1` per §B.4. Fail → back to PM (MISMATCH on transfer). Pass → contract upgrades to MATCH. |
+| **0 (completed gate)** | `spikes/watch-binary-ipc/` | **PM-accepted PASS.** Packaged Windows WebView2 proved ≥9 MiB raw binary IPC on the pinned stack; contract upgraded to MATCH. |
 | 1 | `client/src-tauri/src/watch_receiver/admission.rs` | **New.** `AdmissionGate` (`Idle`/`Reserved{request_id, reserved_at}`), two oneshots, lease, correlated abort; unit tests (accept/reject/timeout/double-resolve/stale-id/lease-reclaim). |
 | 2 | `client/src-tauri/src/watch_receiver/server.rs` | **Modify.** Insert admission step 6, save-failure abort, audio-ready + ack oneshot, `201`-after-ack; integration tests for the full §B.3 order and every §B.6 row. |
 | 3 | `client/src-tauri/src/main.rs` | **Modify (debug-only).** Register gate state; pass handle to receiver thread. |
@@ -351,7 +351,7 @@ Not touched: any `TranscriptionProvider*` file, History/store, `PasteService`, t
 
 ## F. Risks and open questions (revised)
 
-1. **Binary IPC spike (the CONDITION).** Source evidence is strong (§B.4) but runtime behavior on the pinned toolchain — especially that the postMessage fallback never engages — must be proven by the implementation slice's first gate. Failure returns the contract to PM.
+1. **Binary IPC runtime behavior — resolved.** Z2 proved the raw custom-protocol path in packaged Windows WebView2, and PM independently reproduced the exact `ArrayBuffer`, full hash, sentinels, and zero fallback warnings. Keep the accepted dependency locks; dependency drift requires a new runtime check.
 2. **Receiver-thread blocking.** Each upload can hold the accept loop up to ~15 s (5 s admission + 10 s ack). Single-Watch debug use is serialized anyway; a second concurrent Watch is out of scope (same as 1A) and would queue.
 3. **Lease reclamation of a genuinely hung (not dead) WebView.** A run stuck ≥300 s would be reclaimed at the next admission attempt. Healthy worst case is ≈164 s, so this only fires on a hung or vanished WebView — accepted fail-safe, logged.
 4. **Watch-side retry semantics.** A retry after `201` (run still active) gets `409`; a retry after completion is a new run (duplicate transcript). Suppression beyond the busy window stays out of scope; PM should confirm the Watch retries only on transport errors.
@@ -373,9 +373,9 @@ Not touched: any `TranscriptionProvider*` file, History/store, `PasteService`, t
 | 1.4 Remove 30 s JS watchdog; Rust-owned lease (300 s = `MAX_RECORDING_SEC`) derived from existing maxima; WebView-reload recovery without a JS timer | §B.7, §C.4 |
 | 1.5 No `201` before bounded post-save acknowledgement (PCM obtained+validated, callbacks connected, `start` succeeded, run owns reservation); timeout/failure → non-2xx + both-side abort; `201` ≠ transcription completion | §B.3 steps 8-9, §C.1, §F.5 rationale |
 | 1.6 External audio accounting: `recordedChunks`, `audioSentSamples`, sample-derived `wallTimeAtStopSec`, timeout input, prompt/app/probe context fields; no mic-only `stopCapture()`; smallest shared finalize helper | §A.6, §B.5 (steps 2, 7, 9), §E row 5 |
-| 1.7 Binary IPC resolved before unconditional MATCH: pinned-version source evidence recorded; verdict **CONDITIONAL MATCH**; spike = first stop/go gate; base64 fallback for the full body not authorized | §B.4, §E row 0, §F.1 |
+| 1.7 Binary IPC resolved before unconditional MATCH: pinned-version source evidence plus PM-accepted packaged runtime proof; verdict **MATCH**; base64 fallback for the full body remains unauthorized | §B.4, §E row 0, §F.1 |
 | R2 (Repair 2) Exact final-chunk sample accounting: per-chunk `chunkSamples = chunk.byteLength / 2` on the exact slice, exact copied chunk appended to `recordedChunks`, `audioSentSamples += chunkSamples` (never the configured maximum), post-feed assertions `audioSentSamples === admission.sampleCount` and `Σ chunk bytes === pcm.byteLength`, mismatch → correlated abort **before `provider.stop`** with fixed reason `sample_accounting_mismatch`, and `wallTimeAtStopSec`/`pttHoldMs`/timeout input/History duration derived **only** from the exact final `audioSentSamples`; explicit non-divisible-length test case | §B.4, §B.5 steps 7-9, §C.1, §E row 7 |
 
 ---
 
-*End of Z1 contract revision 2. Implementation remains explicitly unauthorized until the PM accepts the revised contract.*
+*End of the frozen Provider contract. PC-only external WAV ingress is authorized only through `docs/DELIVERY-1B-Z-EXTERNAL-INGRESS-TASK.md`; this MATCH does not mark Delivery 1B or the real Watch closed loop complete.*

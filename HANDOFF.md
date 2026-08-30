@@ -36,16 +36,16 @@ Only after PM manually accepts the received audio may the project unlock Deliver
 - The isolated source baseline and PM documents are prepared and pushed to the private `main` branch.
 - Delivery 1A was repaired, independently verified, and PM-accepted on `codex/review-watch-transport`.
 - The user confirmed the real received WAV by human playback.
-- Delivery 1B Z1 Provider contract revision 3 was independently re-reviewed and PM-accepted as **CONDITIONAL MATCH**. Repair 1's seven architecture corrections and Repair 2's exact final-chunk accounting are frozen. The only remaining condition was the isolated Tauri raw binary-IPC runtime spike.
-- The Z2 binary-IPC spike (stage 6A) has been executed by colleague Z and **PASSED** in the packaged Windows debug WebView2 harness. It awaits PM independent review; per the task, PASS upgrades the contract's PCM-transfer condition (CONDITIONAL MATCH → MATCH) only on PM acceptance. External WAV ingress remains locked.
+- Delivery 1B Provider contract is PM-accepted as **MATCH**. Repair 1's seven architecture corrections, Repair 2's exact final-chunk accounting, and the Z2 packaged-Windows raw binary-IPC proof are frozen.
+- Z2 (stage 6A) is independently PM-accepted. The next and only unlocked slice is the PC-only external WAV ingress task in `docs/DELIVERY-1B-Z-EXTERNAL-INGRESS-TASK.md`; the real Watch closed loop and ten-run acceptance remain locked.
 - The PM-reviewed Watch UI direction is frozen separately in `docs/WATCH-UI-Z-HANDOFF.md`; it is reference only until an explicit UI implementation slice is unlocked.
 
 ## Colleague Z quick start
 
 - Repository: `https://github.com/Suzixuan/SayIt-watch-local` (private; obtain access from the user, never exchange credentials in project files or chat evidence).
-- Read first: `AGENTS.md`, `HANDOFF.md`, `PROJECT_PROGRESS.md`, then `docs/DELIVERY-1B-Z-BINARY-IPC-SPIKE-TASK.md`.
+- Read first: `AGENTS.md`, `HANDOFF.md`, `PROJECT_PROGRESS.md`, then `docs/DELIVERY-1B-Z-EXTERNAL-INGRESS-TASK.md`.
 - Working branch: `codex/review-watch-pipeline`, based on accepted Delivery 1A.
-- Z2 is an isolated runtime harness only. Do not modify SayIt or Watch product code; external ingress remains locked.
+- Z3 is PC-only external ingress. Change only the task's allowed files; do not modify Watch UI, Provider implementations, History, Paste, AI, target/focus behavior, release HTTP, dependencies, or accepted locks.
 - Z must push the requested evidence and stop; no merge, tag, release, installer, or public-upstream push.
 
 ## Delivery 1B Z1 contract evidence (Colleague Z, 2026-08-29) — revision 1, superseded by Repair 1
@@ -119,6 +119,18 @@ Decision: the Provider contract is frozen and stage 6 is accepted as **CONDITION
 - Explicit statement: `customProtocolIpcFailed` / the postMessage fallback message **did not appear**. The custom-protocol IPC path delivered the raw bytes.
 - Commands and exit codes: `npm install` (0), `npm test` — vitest 8/8 passed (0), `npm run build` — versions.json + vite (0), `cargo test` — 4/4 payload/hash unit tests passed (0), `npx tauri build --debug --no-bundle` (0). Packaged debug executable: `spikes/watch-binary-ipc/src-tauri/target/debug/spike-binary-ipc.exe`, SHA-256 `940a58476ac390998b352a73aa4a741f97c08866a799002685d2020e02c0abf7` (not committed).
 - Environment findings recorded for the implementation slice: (1) the machine's rustup default is the **GNU** host, under which the `windows-*` crates fail with `dlltool.exe: program not found` — the harness pins `stable-x86_64-pc-windows-msvc` exactly like `client/src-tauri/rust-toolchain.toml`; any new Rust workspace in this repository needs the same pin. (2) A fresh lock resolution drifts past the accepted stack (e.g. `tauri-runtime-wry 2.11.4` breaks `tauri 2.10.3` compilation with an E0308 `new_window_handler` signature change); the harness lock pins the Tauri family to the accepted versions (`tauri-runtime`/`tauri-runtime-wry 2.10.1`, `tauri-utils 2.8.3`, `tauri-build 2.5.6`, `tauri-codegen`/`tauri-macros 2.5.5`, `wry 0.54.4`, `muda 0.17.1`, `tao 0.34.8`).
+
+## Delivery 1B Z2 PM acceptance (2026-08-29) — PASS, contract MATCH
+
+PM reviewed Z commit `d1f7c1fa6943e556d0957ec1bf7c73823193ba81` against accepted base `db988d43a70c6371dade1857c4d379b68737a5fc`.
+
+- Scope passed: only the isolated `spikes/watch-binary-ipc/**` harness and the two submitted authority-document updates changed; no `client/**`, `watch/**`, Provider, Orchestrator, History, Paste, UI, accepted dependency lock, received WAV, token, executable, or build cache was committed. `git diff --check` was clean.
+- Independent automation passed: `npm ci` (exit 0, zero vulnerabilities); `npm test` (Vitest 8/8, exit 0); `npm run build` (exit 0); `cargo test` (4/4, exit 0); `npm run spike:build` (exit 0). The two Rust dead-code warnings are confined to test constants and are non-blocking.
+- Independent payload check passed: length 9,438,418; sentinels 7/190/86; SHA-256 `ebf783be13a56bd212a474803c6b8d6da391b10bc0cfc5721f9422c90c045750`.
+- Independent packaged-native run passed: the freshly rebuilt Windows WebView2 panel reported a 115 ms invoke, `[object ArrayBuffer]`, exact byte length and hash, all sentinels/checks green, and zero total/fallback warnings. PM rebuild executable SHA-256 was `0fdf6bb7789885affca9257c91668a1dfb38f130c9d023c66d2b52706852219f` (not committed; a debug executable is not expected to reproduce Z's build hash bit-for-bit).
+- Dependency evidence matched the frozen stack: `tauri 2.10.3`, `tauri-runtime-wry 2.10.1`, `tauri-utils 2.8.3`, `@tauri-apps/api 2.10.1`, and `@tauri-apps/cli 2.10.1`.
+
+Decision: Z2 is **accepted** and the Provider contract upgrades from CONDITIONAL MATCH to **MATCH**. This proves only the PC runtime transport primitive; it does not complete Delivery 1B or the Galaxy Watch closed loop. The next and only unlocked slice is `docs/DELIVERY-1B-Z-EXTERNAL-INGRESS-TASK.md`. Watch UI remains a later slice.
 
 ## Delivery 1A source/build evidence (Colleague D, 2026-08-29)
 

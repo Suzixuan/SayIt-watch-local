@@ -31,7 +31,7 @@ Only after PM manually accepts the received audio may the project unlock Deliver
 
 - The user reports the existing AudioRelay -> SayIt -> ASR -> text-output chain as VERIFIED. It is out of scope for re-test or refactor.
 - The isolated source baseline and PM documents are prepared and pushed to the private `main` branch.
-- Delivery 1A implementation is complete on `codex/review-watch-transport` (source, tests, builds). See `PROJECT_PROGRESS.md` and the delivery branch for full evidence.
+- Delivery 1A was submitted on `codex/review-watch-transport`, but PM source review returned NO-GO. The active scope is the bounded repair package in `docs/DELIVERY-1A-D-REPAIR-1.md`.
 - Real-device transport evidence (Watch 7 recording -> receiver -> received_watch.wav) is pending device pairing and PM acceptance; it is separate from source/build results.
 - Delivery 1B remains locked.
 
@@ -83,9 +83,26 @@ Manual playback observation (D evidence, pending PM acceptance): run 1 is quiet 
 
 Upload HTTP response (from run-1-style PC self-test and run 2 device upload): `201 Created` with `requestId`, `bytes`, `sampleCount`, `audioDurationMs`, and lowercase hex `sha256` matching the saved file.
 
+## PM review (2026-08-29) — NO-GO
+
+Fresh PM checks confirmed the submitted APK and received WAV hashes match the handoff. The received file independently parses as PCM s16le, 16,000 Hz, mono, 14.88 seconds, 238,080 samples, 476,204 bytes; an automated scan detected no silence interval of 0.5 seconds or longer. This does not replace the required human playback acceptance.
+
+The source cannot be accepted yet:
+
+- Watch destination and token rows are plain `Text`; the supplied `onChange` callback is never called, so the required settings cannot be entered through the Watch UI.
+- Live duration is not sample-derived in the UI: `elapsedSec` is unused and `_sampleCount` is synchronized only after recording completes.
+- A 48-hex-character token represents only 24 decoded bytes; current validators merely check string length and do not enforce the required 256-bit representation.
+- Watch sends `X-Request-Id`, but the receiver discards it and creates another UUID, preventing reliable Watch-to-PC trace correlation.
+- WAV chunk parsing walks to the physical file end even when the declared RIFF extent is shorter.
+- `client/src-tauri/rust-toolchain.toml` changed outside the authorized path without necessity evidence and must return to the baseline declaration.
+
+PM independently reran client Vitest (339 passed) and the client production build successfully. Android verification could not be independently reproduced in the PM shell because Java/JAVA_HOME is absent; Rust tests could not be reproduced there because CMake is absent. These environment blockers do not invalidate D's logs, but those logs are not independent PM proof.
+
+Decision: do not merge, do not mark Delivery 1A accepted, and do not begin Delivery 1B. Colleague D receives only `docs/DELIVERY-1A-D-REPAIR-1.md`.
+
 ## Next executable step
 
-The user sends `docs/DELIVERY-1A-D-TASK.md` to colleague D. D creates `codex/review-watch-transport`, implements only Delivery 1A, pushes the branch, and returns the required evidence package. PM then reviews the actual diff and build evidence before any real-device acceptance.
+The user sends `docs/DELIVERY-1A-D-REPAIR-1.md` to colleague D. D repairs only the frozen discrepancies on `codex/review-watch-transport`, pushes the branch, and returns the requested evidence. PM then re-reviews the actual diff and evidence before any Delivery 1A acceptance.
 
 ## Delivery 1A acceptance
 

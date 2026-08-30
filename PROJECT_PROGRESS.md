@@ -1,19 +1,21 @@
 # SayIt Watch Transport project progress
 
-Overall: 1/8 stages prepared, 2 product stages implemented with fresh source/build evidence (not PM-accepted), device evidence pending.
+Overall: Delivery 1A PM review is NO-GO and in repair. Delivery 1B remains locked.
 
 | Group | # | Task | Acceptance | Status | Owner | Dependency / evidence |
 |---|---:|---|:---:|---|---|---|
 | Foundation | 1 | Isolated private baseline and PM authority files | ☑ | 🟢 Completed | PM | Private `main` baseline import `18400ad82d7f5a7009a47622248643022472650f` |
-| Delivery 1A | 2 | Watch debug recorder and WAV writer | ☐ | 🔵 Implemented, awaiting PM review | Colleague D | Branch `codex/review-watch-transport`; 35 unit tests pass; real 16 kHz initialization required on device |
-| Delivery 1A | 3 | Debug-only Windows LAN receiver | ☐ | 🔵 Implemented, awaiting PM review | Colleague D | tiny_http debug receiver in `client/src-tauri/src/watch_receiver/`; env fail-closed; atomic received_watch.wav |
-| Delivery 1A | 4 | Android and Windows source/build verification | ☐ | 🔵 Implemented, awaiting PM review | Colleague D | gradlew test/lint/assemble exit 0; npm test 339 pass; cargo test 138 pass / 0 fail / 4 ignored; release binary has no receiver markers |
-| Delivery 1A | 5 | Galaxy Watch 7 transport and manual WAV playback gate | ☐ | 🔵 Device transport evidenced, manual playback pending PM | User, PM | Run 1 (ambient) + run 2 (speech) both `201` saved under `%LOCALAPPDATA%\com.sayit.app\watch-receiver\received_watch.wav`; playback observation is D evidence pending PM acceptance |
+| Delivery 1A | 2 | Watch debug recorder and WAV writer | ☐ | 🟠 Repair required | Colleague D | PM found settings UI non-editable and live sample-derived duration not displayed; see `docs/DELIVERY-1A-D-REPAIR-1.md` |
+| Delivery 1A | 3 | Debug-only Windows LAN receiver | ☐ | 🟠 Repair required | Colleague D | PM found token entropy/format, request-ID correlation, and strict RIFF-bound discrepancies |
+| Delivery 1A | 4 | Android and Windows source/build verification | ☐ | 🟠 Partial evidence only | PM, Colleague D | PM rerun: Vitest 339 and client build pass; Android blocked in PM shell by missing Java/JAVA_HOME; Rust blocked by missing CMake; D's prior build evidence is not independent PM reproduction |
+| Delivery 1A | 5 | Galaxy Watch 7 transport and manual WAV playback gate | ☐ | 🟠 Artifact verified, acceptance pending | User, PM | PM independently parsed 14.88 s / 238,080-sample 16 kHz s16le mono WAV and matched SHA-256; human playback acceptance still not recorded |
 | Delivery 1B | 6 | Freeze existing Provider input contract | ☐ | ⚪ Locked | PM, Colleague D | Unlocks only after stage 5 is accepted |
 | Delivery 1B | 7 | External WAV ingress through existing History/Paste | ☐ | ⚪ Locked | Colleague D | Must reuse active Provider and existing callbacks |
 | Acceptance | 8 | Ten consecutive real end-to-end runs | ☐ | ⚪ Locked | User, PM | Record five stages, Stop-to-Paste latency, median and P95 |
 
-Current external slice: Delivery 1A source, build, and transport evidence.
+Current external slice: Delivery 1A Repair 1 only. Delivery 1B is locked.
+
+PM review decision (2026-08-29): **NO-GO**. The branch must not merge in its current state. Repair instructions are frozen in `docs/DELIVERY-1A-D-REPAIR-1.md`.
 
 Latest Delivery 1A verification (Colleague D, 2026-08-29, branch `codex/review-watch-transport`):
 

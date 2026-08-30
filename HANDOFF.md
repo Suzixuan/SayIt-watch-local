@@ -79,13 +79,13 @@ Two real recordings were transported and durably saved:
 
 Both files validated as PCM format 1, 1 channel, 16,000 Hz, 16-bit, block align 2, byte rate 32,000, even non-empty data, no truncation. `%LOCALAPPDATA%\com.sayit.app\watch-receiver\received_watch.wav` is the durable accepted sample; no temp files remain after each upload. Desktop copies for PM playback: `received_watch_D-evidence.wav` (run 1) and `received_watch_D-evidence-voice.wav` (run 2).
 
-Manual playback observation (D evidence, pending PM acceptance): run 1 is quiet room/ambient audio (peak -11.6 dBFS, RMS ≈ -59 dBFS, no speech); run 2 contains speech with full-scale peaks (0 dBFS) and strong per-second energy variation, consistent with the wearer speaking. PM must perform the final listen: no truncation, no abnormal gaps, correct speed/pitch, correct duration, usable speech.
+Manual playback acceptance: on 2026-08-29 the user explicitly confirmed the human playback gate. Together with the independently checked file parameters and hash, Delivery 1A stage 5 is accepted. This acceptance covers the received audio only; it does not waive the source findings below or unlock Delivery 1B.
 
 Upload HTTP response (from run-1-style PC self-test and run 2 device upload): `201 Created` with `requestId`, `bytes`, `sampleCount`, `audioDurationMs`, and lowercase hex `sha256` matching the saved file.
 
 ## PM review (2026-08-29) — NO-GO
 
-Fresh PM checks confirmed the submitted APK and received WAV hashes match the handoff. The received file independently parses as PCM s16le, 16,000 Hz, mono, 14.88 seconds, 238,080 samples, 476,204 bytes; an automated scan detected no silence interval of 0.5 seconds or longer. This does not replace the required human playback acceptance.
+Fresh PM checks confirmed the submitted APK and received WAV hashes match the handoff. The received file independently parses as PCM s16le, 16,000 Hz, mono, 14.88 seconds, 238,080 samples, 476,204 bytes; an automated scan detected no silence interval of 0.5 seconds or longer. The user subsequently confirmed the required human playback acceptance.
 
 The source cannot be accepted yet:
 

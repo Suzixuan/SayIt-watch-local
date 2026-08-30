@@ -100,7 +100,7 @@ PM independently reran client Vitest (339 passed) and the client production buil
 
 Decision: do not merge, do not mark Delivery 1A accepted, and do not begin Delivery 1B. Colleague D receives only `docs/DELIVERY-1A-D-REPAIR-1.md`.
 
-## Delivery 1A Repair 1 (Colleague D, 2026-08-29) — awaiting PM re-review
+## Delivery 1A Repair 1 (Colleague D, 2026-08-29) — PM accepted
 
 All six frozen discrepancies were repaired on `codex/review-watch-transport` (commit pushed; see `PROJECT_PROGRESS.md`). Focused diff per item:
 
@@ -123,7 +123,22 @@ Repair-1 real-device evidence (D evidence): a new speech/ambient recording was c
 
 ## Next executable step
 
-PM re-reviews the Repair 1 diff and evidence on `codex/review-watch-transport`. Delivery 1A remains unaccepted until PM accepts; Delivery 1B stays locked.
+Delivery 1A is accepted. Stop here. Delivery 1B is unlocked but must not start until it is separately dispatched on `codex/review-watch-pipeline`.
+
+## PM acceptance (2026-08-29)
+
+PM reviewed the Repair 1 diff against all six frozen findings and independently ran the available verification:
+
+- Watch: unit tests forced to rerun, 45 passed / 0 failed / 0 skipped; lint, Debug APK and Release APK builds succeeded.
+- Client: Vitest 29 files / 339 tests passed; TypeScript and Vite production build succeeded.
+- Rust: 145 tests total, 141 passed / 0 failed / 4 pre-existing ignored; release build succeeded.
+- Release safety: none of the five receiver markers (`watch-receiver`, `SAYIT_WATCH_BIND_IP`, `received_watch.wav`, `X-Request-Id`, `api/watch/audio`) occur in the release executable. Debug merged manifest enables cleartext; Release merged manifest does not enable it.
+- Artifact evidence: the submitted repair APK hash was matched before the PM rebuild. A clean PM rebuild produced a new debug-artifact hash, as expected for a regenerated debug APK; it does not replace D's installed artifact identity.
+- Device transport: the locally retained Repair 1 WAV hash matches D's report and independently parses as PCM s16le, 16,000 Hz, mono, 14.88 seconds, 238,080 samples, with no detected silence interval of 0.5 seconds or longer. The earlier human playback gate remains accepted.
+
+D reported that IP, port and token were typed with the real Wear keyboard and that live sample-derived duration increased on device. The referenced screenshot files were not included in Git, so this portion remains explicitly classified as D production evidence rather than a PM-replayed attachment. It is consistent with the inspected source and the new device upload.
+
+Decision: Delivery 1A **ACCEPTED**. Delivery 1B is unlocked but not started. No merge, release, installer, or Delivery 1B work was performed by this acceptance.
 
 ## Delivery 1A acceptance
 

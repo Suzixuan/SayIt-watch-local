@@ -9,11 +9,13 @@ Overall: Delivery 1A accepted by PM on 2026-08-29. Delivery 1B is unlocked but n
 | Delivery 1A | 3 | Debug-only Windows LAN receiver | ☑ | 🟢 Accepted | PM, Colleague D | PM reviewed 64-hex token, request-ID preservation and strict RIFF bounds; Rust 141 passed / 0 failed / 4 ignored |
 | Delivery 1A | 4 | Android and Windows source/build verification | ☑ | 🟢 Accepted | PM | Fresh PM runs: Android 45/45 plus lint/Debug/Release builds; Vitest 339/339 and client build; Rust 141/141 non-ignored tests; release receiver-marker scan clean |
 | Delivery 1A | 5 | Galaxy Watch 7 transport and manual WAV playback gate | ☑ | 🟢 Accepted | User, PM | PM independently parsed 14.88 s / 238,080-sample 16 kHz s16le mono WAV and matched SHA-256; user confirmed human playback acceptance on 2026-08-29 |
-| Delivery 1B | 6 | Freeze existing Provider input contract | ☐ | 🟡 Awaiting PM review | Colleague Z | Z1 contract submitted: `docs/DELIVERY-1B-PROVIDER-CONTRACT.md` on `codex/review-watch-pipeline` (base `5cc14b4`); verdict MATCH, no product code changed |
+| Delivery 1B | 6 | Freeze existing Provider input contract | ☐ | 🔵 Repair required | Colleague Z | PM review NO-GO on submission `525f0b2`; documentation-only repair: `docs/DELIVERY-1B-Z-CONTRACT-REPAIR-1.md` |
 | Delivery 1B | 7 | External WAV ingress through existing History/Paste | ☐ | ⚪ Locked | Colleague Z | Unlocks only after PM accepts the Z1 contract; must reuse active Provider and existing callbacks |
 | Acceptance | 8 | Ten consecutive real end-to-end runs | ☐ | ⚪ Locked | User, PM | Record five stages, Stop-to-Paste latency, median and P95 |
 
-Current external slice: Delivery 1B Z1 Provider contract gate — executed by colleague Z, contract document submitted and awaiting PM review. No implementation is authorized yet.
+Current external slice: Delivery 1B Z1 contract Repair 1, waiting for the user to transfer the repair package to colleague Z. No implementation is authorized.
+
+Z1 PM review (2026-08-29): scope control passed (only the three allowed documentation files changed), but the contract decision is NO-GO. The submitted design omits the required per-run Provider `connect(callbacks)` and explicit successful `start` before PCM, treats asynchronous native context capture as synchronous, leaks the JS reservation on Rust-side aborts, uses an unsafe 30-second JS watchdog, permits a lost post-201 handoff, and does not freeze the audio accounting required by History/timeouts. Repair instructions: `docs/DELIVERY-1B-Z-CONTRACT-REPAIR-1.md`.
 
 PM review decision (2026-08-29): **NO-GO** on the original submission. Repair instructions were frozen in `docs/DELIVERY-1A-D-REPAIR-1.md`; all six items are now repaired and pushed.
 

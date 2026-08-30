@@ -54,6 +54,22 @@ Only after PM manually accepts the received audio may the project unlock Deliver
 - `409` admission boundary design: a Rust `AdmissionGate` (`Idle`/`Reserved{requestId}`) shared between the blocking receiver thread and three new debug-only Tauri commands; the WebView performs a fully synchronous check-and-reserve (`tryReserveExternalRun`) inside one JS macrotask, so a PTT run cannot start between the busy/ready check and the reservation (and vice versa via one added guard clause in `startRecording`). Admission precedes the durable save, so a `409` never overwrites `received_watch.wav`; `201` is still returned only after durable save plus acceptance; PCM reaches the Orchestrator as raw header-stripped bytes via binary IPC (no base64); every terminal path releases the gate through the existing `finishRun` hook.
 - All five task stop-conditions evaluated as not triggered; minimal implementation file list, four ordered event sequences, and nine risks/open questions are recorded in the contract document for the PM's decision.
 
+## Delivery 1B Z1 PM review (2026-08-29) — NO-GO
+
+Scope control passed: Z changed only `docs/DELIVERY-1B-PROVIDER-CONTRACT.md`, `HANDOFF.md`, and `PROJECT_PROGRESS.md`; no product code changed.
+
+The contract is not frozen yet:
+
+- It states `connect -> isReady -> start`, while the real run first checks readiness and then reconnects the existing guarded callbacks before `start`. The external sequence omits explicit successful `provider.connect(buildProviderCallbacks())` and `provider.start(...)` before PCM.
+- It labels `tryReserveExternalRun` fully synchronous while also claiming it completes `bridge.getRecordingContext(false)`, which is asynchronous.
+- Durable-save and other Rust-side aborts release only the Rust gate, leaving the JS reservation/run allocated.
+- The proposed 30-second JS watchdog is shorter than valid processing plus late-final lifetimes and cannot execute after a WebView reload.
+- The design explicitly permits a lost post-201 handoff, leaving the Watch showing success when no ASR run exists.
+- It does not freeze `recordedChunks`, `audioSentSamples`, sample-derived duration, context fields, or a non-mic stop path required by existing History and timeout behavior.
+- Raw binary Tauri IPC remains an unverified dependency despite the unconditional `MATCH` verdict.
+
+Decision: Delivery 1B implementation remains locked. Colleague Z receives the documentation-only repair package `docs/DELIVERY-1B-Z-CONTRACT-REPAIR-1.md` and must stop after resubmission.
+
 ## Delivery 1A source/build evidence (Colleague D, 2026-08-29)
 
 Toolchain used for the delivery-1A verification runs:

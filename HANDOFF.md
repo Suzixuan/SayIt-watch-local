@@ -36,7 +36,8 @@ Only after PM manually accepts the received audio may the project unlock Deliver
 - The isolated source baseline and PM documents are prepared and pushed to the private `main` branch.
 - Delivery 1A was repaired, independently verified, and PM-accepted on `codex/review-watch-transport`.
 - The user confirmed the real received WAV by human playback.
-- Delivery 1B Z1 Provider contract revision 2 has been resubmitted by colleague Z on `codex/review-watch-pipeline` after PM Repair 1. It awaits PM re-review; no implementation is authorized yet.
+- Delivery 1B Z1 Provider contract revision 2 was independently re-reviewed by PM. Repair 1's seven architectural corrections are present, but exact final-chunk sample accounting is still wrong; the documentation-only Repair 2 package is `docs/DELIVERY-1B-Z-CONTRACT-REPAIR-2.md`. No implementation is authorized yet.
+- The PM-reviewed Watch UI direction is frozen separately in `docs/WATCH-UI-Z-HANDOFF.md`; it is reference only until an explicit UI implementation slice is unlocked.
 
 ## Colleague Z quick start
 
@@ -83,6 +84,14 @@ Decision: Delivery 1B implementation remains locked. Colleague Z receives the do
 - Repair 1.5: `201` is returned only after a bounded (10 s) post-save acknowledgement (`watch_run_started`) proving the saved PCM was obtained and validated, callbacks connected, and `provider.start` succeeded; failures answer non-2xx and abort both sides; `201` means transport/admission/session success, never transcription completion (§B.3 step 8).
 - Repair 1.6: the external run explicitly populates `recordedChunks`, `audioSentSamples`, sample-derived `wallTimeAtStopSec`, the processing-timeout input and the prompt/app/probe context fields; it never calls mic-only `stopCapture()`; the smallest shared finalize helper (`finalizeRecording`) is extracted from `stopRecording`'s tail for both paths (§B.5).
 - All five task stop-conditions remain not triggered (§D); revised sequences cover accepted, busy, abort matrix, reload recovery and successful final (§C); nine risks recorded (§F).
+
+## Delivery 1B Z1 PM re-review (2026-08-29) — Repair 2 required
+
+Scope control passed: compared with PM review base `8240d4a`, Z changed only `docs/DELIVERY-1B-PROVIDER-CONTRACT.md`, `HANDOFF.md`, and `PROJECT_PROGRESS.md`; `git diff --check` is clean. Revision 2 correctly addresses all seven Repair 1 architecture items.
+
+One blocking defect remains in §B.5 step 7: the feed loop increments `audioSentSamples += 4096` for every chunk, although the final slice can contain fewer than 4096 i16 samples. That overcounts sample-derived duration and can affect minimum-duration handling, processing timeouts, History audio metadata, and latency evidence.
+
+Decision: revision 2 is **not yet frozen**. Colleague Z receives the narrow documentation-only package `docs/DELIVERY-1B-Z-CONTRACT-REPAIR-2.md`. It requires exact `chunk.byteLength / 2` accounting, end-of-feed equality checks against admitted `sampleCount`/PCM bytes, correlated abort on mismatch, and one non-divisible-by-4096 test contract. All other Repair 1 decisions remain accepted and must not be redesigned. Product implementation and the binary-IPC spike remain locked until PM accepts Repair 2.
 
 ## Delivery 1A source/build evidence (Colleague D, 2026-08-29)
 

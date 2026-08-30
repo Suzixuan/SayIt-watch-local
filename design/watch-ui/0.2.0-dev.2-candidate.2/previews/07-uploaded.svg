@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="480" viewBox="0 0 480 480">
+  <defs><clipPath id="round"><circle cx="240" cy="240" r="240"/></clipPath></defs>
+  <g clip-path="url(#round)">
+    <rect width="480" height="480" fill="#101418"/>
+    <text x="240" y="46" fill="#7f95a8" font-family="monospace" font-size="17" text-anchor="middle">10:10</text>
+    <text x="240" y="210" fill="#e8edf2" font-family="monospace" font-size="24" font-weight="bold" text-anchor="middle">Uploaded to PC</text>
+    <text x="240" y="250" fill="#9fb3c8" font-family="monospace" font-size="15" text-anchor="middle">The PC received the recording.</text>
+  </g>
+  <circle cx="240" cy="240" r="238" fill="none" stroke="#2a3440" stroke-width="2"/>
+  <!-- Generated from WatchUiMetrics: chip 340x52, half 160x52 (gap 20), circle 52, side padding 34 -->
+</svg>

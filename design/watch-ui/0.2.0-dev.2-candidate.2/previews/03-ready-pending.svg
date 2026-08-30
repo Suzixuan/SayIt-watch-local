@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="480" viewBox="0 0 480 480">
+  <defs><clipPath id="round"><circle cx="240" cy="240" r="240"/></clipPath></defs>
+  <g clip-path="url(#round)">
+    <rect width="480" height="480" fill="#101418"/>
+    <text x="240" y="46" fill="#7f95a8" font-family="monospace" font-size="17" text-anchor="middle">10:10</text>
+    <text x="240" y="96" fill="#e8edf2" font-family="monospace" font-size="24" font-weight="bold" text-anchor="middle">Ready</text>
+    <text x="240" y="124" fill="#ff8a80" font-family="monospace" font-size="15" text-anchor="middle">Transport unavailable</text>
+    <rect x="120" y="142" width="240" height="40" rx="20" fill="#3ddc84"/>
+    <text x="240" y="168" fill="#0b0f14" font-family="monospace" font-size="16" font-weight="bold" text-anchor="middle">Pending upload · tap to retry</text>
+    <rect x="70" y="196" width="340" height="52" rx="26" fill="#1d4a2f" stroke="#3ddc84" stroke-width="2"/>
+    <text x="240" y="228" fill="#d7e3f0" font-family="monospace" font-size="15" text-anchor="middle">Retry upload</text>
+    <circle cx="240" cy="304" r="26" fill="#1d4a2f" stroke="#3ddc84" stroke-width="2"/>
+    <text x="240" y="311" fill="#d7e3f0" font-family="monospace" font-size="20" text-anchor="middle">●</text>
+    <text x="240" y="350" fill="#7f95a8" font-family="monospace" font-size="13" text-anchor="middle">Record</text>
+    <text x="240" y="398" fill="#3d6a9e" font-family="monospace" font-size="14" text-anchor="middle">Settings</text>
+  </g>
+  <circle cx="240" cy="240" r="238" fill="none" stroke="#2a3440" stroke-width="2"/>
+  <!-- Generated from WatchUiMetrics: chip 340x52, half 160x52 (gap 20), circle 52, side padding 34 -->
+</svg>

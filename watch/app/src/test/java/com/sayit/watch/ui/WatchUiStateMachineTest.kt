@@ -131,6 +131,52 @@ class WatchUiStateMachineTest {
     }
 
     @Test
+    fun `failure then later then retry from pending-ready reaches uploading with the same bytes`() {
+        // Z3 Repair 2 必修 2: Later must not strand the retained WAV — the
+        // Pending-ready state exposes a reachable Retry. The session is driven in
+        // lockstep (exactly as the ViewModel does) so the uploaded bytes can be
+        // asserted against the original WAV.
+        val m = machine()
+        val session = com.sayit.watch.recording.RecordingSession()
+        session.toReady()
+
+        m.recordingStarted()
+        session.startRecording()
+        val originalWav = byteArrayOf(7, 5, 3, 1, 9, 8, 2, 6)
+        session.recordingCompleted(samples = 4, wav = originalWav)
+
+        m.uploadStarted()
+        session.beginUpload()
+        session.transportFailed("HTTP 409 (PC busy)")
+        m.uploadFailed("HTTP 409 (PC busy)")
+        assertEquals(WatchUiState.Overlay.UPLOAD_FAILED, m.state.overlay)
+
+        m.laterPressed()
+        assertEquals(WatchUiState.Overlay.NONE, m.state.overlay)
+        assertTrue(m.state.showsPendingUploadBadge)
+
+        // Retry from Pending-ready: reachable, and the machine accepts it.
+        m.retryPressed()
+        assertEquals(WatchUiState.Overlay.UPLOADING, m.state.overlay)
+        // The retried upload consumes the SAME retained bytes.
+        session.beginUpload()
+        org.junit.Assert.assertArrayEquals(originalWav, session.wavBytes)
+        session.transportSucceeded()
+        m.uploadSucceeded()
+        assertEquals(WatchUiState.Overlay.UPLOADED, m.state.overlay)
+        assertFalse(m.state.pendingUpload)
+    }
+
+    @Test
+    fun `retry is not offered without a pending upload`() {
+        val m = machine()
+        // No failure, no pending WAV: retry has nothing to send and is a no-op.
+        m.retryPressed()
+        assertEquals(WatchUiState.Overlay.NONE, m.state.overlay)
+        assertFalse(m.state.pendingUpload)
+    }
+
+    @Test
     fun `health check only records transport availability`() {
         val m = machine()
         m.healthChecked(true)

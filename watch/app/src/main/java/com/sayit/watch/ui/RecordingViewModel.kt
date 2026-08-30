@@ -25,6 +25,33 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
+ * Cancel latch for the recording I/O coroutine (Z3 Repair 2 必修 1). A user
+ * Cancel invalidates the in-flight generation, so a capture that completes
+ * AFTER the cancel is dropped: no `recordingCompleted`, no auto-upload, no
+ * Failure write. Pure and JVM-testable.
+ */
+class RecordingRequestLatch {
+    private var generation = 0
+    private var cancelledGeneration = -1
+
+    /** Starts a new recording generation and returns its ID. */
+    fun begin(): Int {
+        generation += 1
+        cancelledGeneration = -1
+        return generation
+    }
+
+    /** Cancels the current generation: late completions become stale. */
+    fun cancel() {
+        cancelledGeneration = generation
+    }
+
+    /** True only while `generation` is the live, non-cancelled one. */
+    fun isCurrent(generationId: Int): Boolean =
+        generationId != 0 && generationId == generation && generationId != cancelledGeneration
+}
+
+/**
  * Pure UI state machine for the 0.2.0-dev.2 Wear OS screens
  * (docs/WATCH-UI-Z-HANDOFF.md). No Android dependencies — unit-testable on the
  * JVM. The ViewModel maps recording/transport callbacks onto its events.
@@ -145,9 +172,15 @@ class WatchUiStateMachine(
         }
     }
 
-    /** Retry re-uploads the SAME retained WAV — no re-record, no discard. */
+    /** Retry re-uploads the SAME retained WAV — no re-record, no discard.
+     *  Reachable both from the failure overlay and from the Pending-ready badge
+     *  (Z3 Repair 2 必修 2: Later must not strand the retained WAV). */
     fun retryPressed() {
-        if (state.overlay == WatchUiState.Overlay.UPLOAD_FAILED) {
+        val fromFailure = state.overlay == WatchUiState.Overlay.UPLOAD_FAILED
+        val fromPendingReady = state.overlay == WatchUiState.Overlay.NONE &&
+            state.pendingUpload &&
+            state.screen == WatchUiState.Screen.READY
+        if (fromFailure || fromPendingReady) {
             set(state.copy(overlay = WatchUiState.Overlay.UPLOADING, failureReason = null))
         }
     }
@@ -324,11 +357,14 @@ class RecordingViewModel(
         uiEvent(WatchUiStateMachine::dismissDiscardPrompt)
     }
 
+    private val requestLatch = RecordingRequestLatch()
+
     /** Starts recording on a dedicated I/O coroutine. */
     fun startRecording(maxDurationSec: Int = 15) {
         prepare()
         if (session.state != RecordingSession.State.READY) return
         session.startRecording()
+        val generation = requestLatch.begin()
         recordingActive = true
         syncState()
         uiEvent(WatchUiStateMachine::recordingStarted)
@@ -346,8 +382,15 @@ class RecordingViewModel(
                         { cumulative -> _sampleCount.value = cumulative },
                     )
                     val wav = WavWriter.buildWav(pcm.toByteArray(), pcm.size())
-                    session.recordingCompleted(count, wav)
-                    count
+                    // Z3 Repair 2 必修 1: a Cancel invalidates this generation — the
+                    // late capture completion is dropped entirely (no completed
+                    // state, no auto-upload, no Failure write). Session stays READY.
+                    if (requestLatch.isCurrent(generation)) {
+                        session.recordingCompleted(count, wav)
+                        count
+                    } else {
+                        -1
+                    }
                 } catch (e: Exception) {
                     session.recordingFailed(e.message ?: "recording failed")
                     -1
@@ -374,6 +417,10 @@ class RecordingViewModel(
      */
     fun cancelRecording() {
         recordingActive = false
+        // Invalidate the in-flight generation FIRST: the capture coroutine's late
+        // completion is then dropped by the latch (final state stays READY with
+        // no WAV — never FAILURE, never an upload).
+        requestLatch.cancel()
         session.reset()
         prepare()
         syncState()

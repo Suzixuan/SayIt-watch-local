@@ -10,7 +10,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -58,10 +61,92 @@ import com.sayit.watch.settings.SettingsStore
  * inside the circular safe area (centered column, generous horizontal padding).
  */
 
+/**
+ * Shared control metrics for the frozen candidate previews (Z3 Repair 2 必修 3).
+ * The runtime controls and the SVG previews in
+ * `design/watch-ui/0.2.0-dev.2-candidate.2/previews` are generated from these
+ * same numbers; `WatchUiMetricsTest` pins the invariants (≥48 dp touch height,
+ * widths inside the 480×480 circular safe area).
+ */
+object WatchUiMetrics {
+    /** Wear Chip default height — wide pill buttons (Save & Apply, Retry, …). */
+    val WideChipHeightDp = 52.dp
+
+    /** Wide pill width inside the 480×480 round safe area (34 dp side padding). */
+    val WideChipWidthDp = 340.dp
+
+    /** Two side-by-side failure-action chips (Retry / Later). */
+    val HalfChipWidthDp = 160.dp
+
+    /** Minimum clickable height for config rows and the token Show/Hide action. */
+    val RowMinHeightDp = 48.dp
+
+    /** Circular primary action (Record / Stop) — Wear Button default size. */
+    val MainActionSizeDp = 52.dp
+
+    /** Horizontal safe-area padding used on every screen. */
+    val ScreenSidePaddingDp = 34.dp
+}
+
 /** Masked token display: first 4 + dots + last 4 (e.g. A1B2••••••••7890). */
 fun maskToken(token: String): String {
     if (token.length <= 8) return "••••••••"
     return token.take(4) + "••••••••" + token.takeLast(4)
+}
+
+/** Wide pill action matching the frozen previews (Repair 2 必修 3). */
+@Composable
+private fun WideActionChip(label: String, onClick: () -> Unit, enabled: Boolean = true) {
+    androidx.wear.compose.material.Chip(
+        onClick = onClick,
+        label = {
+            Text(
+                text = label,
+                fontSize = 15.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        },
+        modifier = Modifier
+            .width(WatchUiMetrics.WideChipWidthDp)
+            .height(WatchUiMetrics.WideChipHeightDp),
+        enabled = enabled,
+    )
+}
+
+/** Two side-by-side pills (Retry / Later) matching the frozen previews. */
+@Composable
+private fun SplitActionChips(primaryLabel: String, secondaryLabel: String, onPrimary: () -> Unit, onSecondary: () -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+        androidx.wear.compose.material.Chip(
+            onClick = onPrimary,
+            label = {
+                Text(
+                    text = primaryLabel,
+                    fontSize = 14.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            },
+            modifier = Modifier
+                .width(WatchUiMetrics.HalfChipWidthDp)
+                .height(WatchUiMetrics.WideChipHeightDp),
+        )
+        androidx.wear.compose.material.Chip(
+            onClick = onSecondary,
+            label = {
+                Text(
+                    text = secondaryLabel,
+                    fontSize = 14.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            },
+            modifier = Modifier
+                .width(WatchUiMetrics.HalfChipWidthDp)
+                .height(WatchUiMetrics.WideChipHeightDp),
+        )
+    }
 }
 
 @Composable
@@ -170,27 +255,31 @@ private fun ConfigScreen(viewModel: RecordingViewModel, settings: SettingsStore)
                     textAlign = TextAlign.Center,
                 )
             }
-            Text(
-                text = if (tokenRevealed) {
-                    stringResource(R.string.config_hide_token)
-                } else {
-                    stringResource(R.string.config_show_token)
-                },
-                fontSize = 11.sp,
-                color = MaterialTheme.colors.primary,
+            Box(
                 modifier = Modifier
-                    .padding(start = 8.dp, top = 14.dp)
+                    .padding(start = 8.dp)
+                    .height(WatchUiMetrics.RowMinHeightDp)
                     .clickable { tokenRevealed = !tokenRevealed },
-            )
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = if (tokenRevealed) {
+                        stringResource(R.string.config_hide_token)
+                    } else {
+                        stringResource(R.string.config_show_token)
+                    },
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colors.primary,
+                )
+            }
         }
 
         Spacer(Modifier.height(10.dp))
-        Button(
+        WideActionChip(
+            label = stringResource(R.string.config_save_apply),
             onClick = { viewModel.applySettings(ipText, portText, tokenText) },
             enabled = canApply,
-        ) {
-            Text(stringResource(R.string.config_save_apply), fontSize = 13.sp)
-        }
+        )
         if (!canApply) {
             Text(
                 text = stringResource(R.string.config_validation_hint),
@@ -256,9 +345,10 @@ private fun ReadyScreen(
             textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth(),
         )
-        Button(onClick = { viewModel.checkHealth() }) {
-            Text(stringResource(R.string.health_check_action), fontSize = 12.sp)
-        }
+        WideActionChip(
+            label = stringResource(R.string.health_check_action),
+            onClick = { viewModel.checkHealth() },
+        )
         Spacer(Modifier.height(4.dp))
         Text(
             text = stringResource(R.string.ready_open_config),
@@ -269,7 +359,12 @@ private fun ReadyScreen(
 
         if (ui.showsPendingUploadBadge) {
             Spacer(Modifier.height(6.dp))
-            PendingUploadBadge()
+            PendingUploadBadge(onClick = { viewModel.retryUpload() })
+            Spacer(Modifier.height(6.dp))
+            WideActionChip(
+                label = stringResource(R.string.pending_retry_action),
+                onClick = { viewModel.retryUpload() },
+            )
         }
 
         Spacer(Modifier.height(10.dp))
@@ -281,9 +376,16 @@ private fun ReadyScreen(
             Button(
                 onClick = { viewModel.recordButtonPressed() },
                 colors = ButtonDefaults.buttonColors(),
+                modifier = Modifier.size(WatchUiMetrics.MainActionSizeDp),
             ) {
-                Text(stringResource(R.string.ready_record), fontSize = 15.sp)
+                Text(stringResource(R.string.ready_record_glyph), fontSize = 18.sp)
             }
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = stringResource(R.string.ready_record),
+                fontSize = 11.sp,
+                color = MaterialTheme.colors.onSurfaceVariant,
+            )
         }
 
         Spacer(Modifier.height(8.dp))
@@ -297,7 +399,7 @@ private fun ReadyScreen(
 }
 
 @Composable
-private fun PendingUploadBadge() {
+private fun PendingUploadBadge(onClick: () -> Unit) {
     Text(
         text = stringResource(R.string.pending_upload_badge),
         fontSize = 11.sp,
@@ -305,7 +407,8 @@ private fun PendingUploadBadge() {
         fontWeight = FontWeight.Bold,
         modifier = Modifier
             .background(MaterialTheme.colors.secondary, RoundedCornerShape(10.dp))
-            .padding(horizontal = 10.dp, vertical = 3.dp),
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
         textAlign = TextAlign.Center,
     )
 }
@@ -337,9 +440,18 @@ private fun RecordingActiveScreen(viewModel: RecordingViewModel) {
             color = MaterialTheme.colors.onSurfaceVariant,
         )
         Spacer(Modifier.height(14.dp))
-        Button(onClick = { viewModel.stopRecording() }, colors = ButtonDefaults.buttonColors()) {
-            Text(stringResource(R.string.recording_stop), fontSize = 14.sp)
+        Button(
+            onClick = { viewModel.stopRecording() },
+            colors = ButtonDefaults.buttonColors(),
+            modifier = Modifier.size(WatchUiMetrics.MainActionSizeDp),
+        ) {
+            Text(stringResource(R.string.recording_stop_glyph), fontSize = 16.sp)
         }
+        Text(
+            text = stringResource(R.string.recording_stop),
+            fontSize = 11.sp,
+            color = MaterialTheme.colors.onSurfaceVariant,
+        )
         Spacer(Modifier.height(8.dp))
         Text(
             text = stringResource(R.string.recording_cancel_hint),
@@ -348,6 +460,7 @@ private fun RecordingActiveScreen(viewModel: RecordingViewModel) {
             textAlign = TextAlign.Center,
             modifier = Modifier
                 .fillMaxWidth()
+                .height(WatchUiMetrics.RowMinHeightDp)
                 .clickable { viewModel.cancelRecording() },
         )
     }
@@ -401,14 +514,12 @@ private fun UploadFailedOverlay(viewModel: RecordingViewModel, ui: WatchUiState)
             modifier = Modifier.fillMaxWidth(),
         )
         Spacer(Modifier.height(10.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { viewModel.retryUpload() }) {
-                Text(stringResource(R.string.upload_failed_retry), fontSize = 12.sp)
-            }
-            Button(onClick = { viewModel.laterPressed() }) {
-                Text(stringResource(R.string.upload_failed_later), fontSize = 12.sp)
-            }
-        }
+        SplitActionChips(
+            primaryLabel = stringResource(R.string.upload_failed_retry),
+            secondaryLabel = stringResource(R.string.upload_failed_later),
+            onPrimary = { viewModel.retryUpload() },
+            onSecondary = { viewModel.laterPressed() },
+        )
     }
 }
 
@@ -525,14 +636,18 @@ private fun StatusLine(state: RecordingSession.State, sampleCount: Int, lastErro
 private fun SettingsField(label: String, value: String, onChange: (String) -> Unit) {
     var editing by remember { mutableStateOf(false) }
 
-    Column(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp)
+            .heightIn(min = WatchUiMetrics.RowMinHeightDp)
+            .clickable { editing = true },
+    ) {
         Text(label, fontSize = 11.sp, color = MaterialTheme.colors.onSurfaceVariant)
         Text(
             text = if (value.isEmpty()) stringResource(R.string.config_tap_to_edit) else value,
             fontSize = 12.sp,
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { editing = true },
+            modifier = Modifier.fillMaxWidth(),
             textAlign = TextAlign.Center,
         )
     }

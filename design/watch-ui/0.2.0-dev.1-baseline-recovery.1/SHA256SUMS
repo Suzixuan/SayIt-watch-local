@@ -1,0 +1,6 @@
+8eee9944f1e9aa0464774fe183ae4e0e3d1861ff1381f9ae11bd55066fc38254  watch/app/build.gradle.kts
+b39787d11a957ea6e7368f74007aa3ccf0ab9f7fd31e97d41cf0c28a3a5c9c9a  watch/app/src/main/AndroidManifest.xml
+d3c18ad02970cddf3fe38dabb2ae5dc5a2f9b932e94482ebb41fc6300b1a7d43  watch/app/src/main/java/com/sayit/watch/MainActivity.kt
+2ea7e85593342674e729f84e21a9925ddecfcc86e3ebf6500c8bf1cf14a899fc  watch/app/src/main/java/com/sayit/watch/ui/RecordingScreen.kt
+9b0220c3db50e1ef8d96f43423e5ee2c96454f2f4651231160be87983a4527a7  watch/app/src/main/java/com/sayit/watch/ui/RecordingViewModel.kt
+257c0189eb7825ff0a986b7853dca9eadab422bb6ac41ebb010023245eecd85b  watch/app/src/main/res/values/strings.xml

@@ -25,6 +25,9 @@
     <string name="health_check_action">Check / Refresh</string>
     <string name="ready_grant_mic">Grant Mic</string>
     <string name="ready_record">Record</string>
+    <string name="ready_record_glyph">●</string>
+    <string name="recording_stop_glyph">■</string>
+    <string name="pending_retry_action">Retry upload</string>
     <string name="ready_open_config">Settings</string>
     <string name="pending_upload_badge">Pending upload</string>
 
@@ -35,7 +38,7 @@
 
     <!-- Upload inline states (transport-only wording; never "Transcribed") -->
     <string name="uploading_title">Uploading…</string>
-    <string name="uploading_body">Sending the recording to the PC. Keep the watch on.</string>
+    <string name="uploading_body">Sending the recording to the PC. The screen stays awake automatically.</string>
     <string name="upload_failed_title">Upload failed</string>
     <string name="upload_failed_generic">The PC did not accept the upload.</string>
     <string name="upload_failed_retained">The recording is kept. Retry resends it — no re-recording.</string>

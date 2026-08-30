@@ -21,7 +21,7 @@ Latest Delivery 1A verification (Colleague D, 2026-08-29, branch `codex/review-w
 - `client`: `npm test` — 29 files / 339 tests passed; `npm run build` — exit 0.
 - `client/src-tauri`: `cargo test` — 142 tests, 138 passed / 0 failed / 4 ignored (exit 0).
 - Release safety: `cargo build --release` binary contains no receiver markers; Watch release APK manifest denies cleartext, debug APK permits it.
-- Debug APK SHA-256 `8596C5E2E976508894561CBB686B32BA0463E212C21B9A9A0063389441D69515` (path `watch/app/build/outputs/apk/debug/app-debug.apk`, not committed).
+- Debug APK SHA-256 `81B14FECBC5119300FE98433526CF848E28178878B925F0E85A15DB6FBF06944` (path `watch/app/build/outputs/apk/debug/app-debug.apk`, not committed).
 - Real-device evidence (2026-08-29): Galaxy Watch 7 (SM-L310, Android 16/API 36) initialized AudioRecord at native 16 kHz and transported two recordings to the debug receiver over LAN HTTP — run 1 ambient (223,360 samples, 13.96 s, SHA-256 `700f4daa...`), run 2 speech (238,080 samples, 14.88 s, SHA-256 `39a80c7c...`), both saved durably as `%LOCALAPPDATA%\com.sayit.app\watch-receiver\received_watch.wav` with `201 Created`. Manual playback observation is D evidence pending PM acceptance. Delivery 1A is NOT marked accepted.
 
 Next unlocked item: PM review of the Delivery 1A diff/build evidence, then real-device acceptance by user + PM.

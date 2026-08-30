@@ -36,7 +36,7 @@ Only after PM manually accepts the received audio may the project unlock Deliver
 - The isolated source baseline and PM documents are prepared and pushed to the private `main` branch.
 - Delivery 1A was repaired, independently verified, and PM-accepted on `codex/review-watch-transport`.
 - The user confirmed the real received WAV by human playback.
-- Delivery 1B is unlocked, but implementation has not started. The active next slice is the documentation-only Provider contract gate for colleague Z.
+- Delivery 1B Z1 Provider contract gate has been executed by colleague Z on `codex/review-watch-pipeline` (base `5cc14b4`). The contract document is submitted and awaits PM review; no implementation is authorized yet.
 
 ## Colleague Z quick start
 
@@ -45,6 +45,14 @@ Only after PM manually accepts the received audio may the project unlock Deliver
 - Working branch: `codex/review-watch-pipeline`, based on accepted Delivery 1A.
 - Z1 output is documentation only. Do not modify product code until PM accepts the Provider contract.
 - Z must push the requested evidence and stop; no merge, tag, release, installer, or public-upstream push.
+
+## Delivery 1B Z1 contract evidence (Colleague Z, 2026-08-29)
+
+- Deliverable: `docs/DELIVERY-1B-PROVIDER-CONTRACT.md` (documentation only; base commit `5cc14b4c8658920cc9ca9b21ab1dcaf878f1a136` on `codex/review-watch-pipeline`). No product code, tests, dependencies, or build configuration changed.
+- Conclusion: **MATCH**. All six proposed audio-contract clauses are confirmed from source evidence on both sides — capture (`client/src/services/audio.ts`: 16 kHz target, mono, Int16 conversion, `bytes/2/16000` duration) and receiver validation (`client/src-tauri/src/watch_receiver/wav.rs`: PCM format 1, mono, 16,000 Hz, 16-bit, block-align/byte-rate checks).
+- Contract freeze: `TranscriptionProvider` real call order is `connect → isReady → start → sendAudio* → stop → (onASR? → onFinal → onDone?) | onError` with runId generation guards (`RecorderOrchestrator.ts:126-135, 258-275, 900-1154`); a normal final reaches History first (`addHistory` in `processFinalResult`) then Paste with the probe snapshot captured exactly once at run start; `aiEnabled` is the AI-cleanup setting and an external run can freeze `disableAi: true` per-run via existing `StartOptions`/`StopOptions` fields without deleting AI features.
+- `409` admission boundary design: a Rust `AdmissionGate` (`Idle`/`Reserved{requestId}`) shared between the blocking receiver thread and three new debug-only Tauri commands; the WebView performs a fully synchronous check-and-reserve (`tryReserveExternalRun`) inside one JS macrotask, so a PTT run cannot start between the busy/ready check and the reservation (and vice versa via one added guard clause in `startRecording`). Admission precedes the durable save, so a `409` never overwrites `received_watch.wav`; `201` is still returned only after durable save plus acceptance; PCM reaches the Orchestrator as raw header-stripped bytes via binary IPC (no base64); every terminal path releases the gate through the existing `finishRun` hook.
+- All five task stop-conditions evaluated as not triggered; minimal implementation file list, four ordered event sequences, and nine risks/open questions are recorded in the contract document for the PM's decision.
 
 ## Delivery 1A source/build evidence (Colleague D, 2026-08-29)
 

@@ -286,3 +286,12 @@ Delivery 1B may modify the external-audio ingress only after the Delivery 1A acc
 
 - Development tokens are generated outside the repository and supplied through environment configuration.
 - Tokens, received audio, local SDK paths, signing material, and device identifiers must not enter Git, logs, screenshots, or handoff documents.
+
+## Delivery 1B Z3 Repair 1 PM review (2026-08-30) — split decision / UI Repair 2 required
+
+- Review target: `b8daef527acbdced401e73ec9be6eaee39373389` against base `5da1a32279b372810d83504aca2021b0c8146763`; branch `codex/review-watch-pipeline`; submitted tree was clean and `git diff --check` passed.
+- PC Part A retained: the real Tauri sink now emits `serde_json::Value` objects; admission and run-start ack waiters are registered before their events; external Provider errors skip mic-only `stopCapture` and use the correlated shared cleanup. Fresh client evidence: 370/370 Vitest passed and production TypeScript/Vite build passed. The current Rust test executable ran 158 passed / 0 failed / 4 ignored; the existing Release exe was independently scanned and all eleven Watch/admission markers were absent.
+- Rust build limitation: a fresh `cargo test`/Release rebuild did not complete in this PM run because the external `transcribe-cpp-sys` CMake/MSBuild cache failed at generated tracking logs (`FTK1011` / `MSB3491`). This is not presented as a product-code failure, but fresh Cargo compile evidence is required in the next Z return.
+- Watch build evidence: unit tests forced to rerun, 57 passed / 0 failed / 0 skipped; lint, Debug APK, and Release APK builds passed. Debug APK SHA-256: `77E614CF2CE8ACCDDA61A8221C0501D9210BD1A976B1425985835C7AE1625CB5` (not committed).
+- Watch UI decision: **NO-GO**. Cancel can race its late capture completion and end in Failure; Later leaves a Pending state with no reachable Retry; long text actions use Wear Compose Material 1.4.1 default circular 52 dp `Button` while candidate SVGs show wide pills; `Keep the watch on` conflicts with app-driven awake behavior; and the parent baseline hashes are not trustworthy (`build.gradle.kts` records the dev.2 working-file hash rather than the dev.1 parent blob). Candidate.1 and the invalid baseline remain untouched as audit evidence.
+- Next task for colleague Z: `docs/DELIVERY-1B-Z3-REPAIR-2.md`. It fixes only Watch UI behavior and versioned evidence, freezes `candidate.2`, reruns all required checks, pushes, and stops. No real-device closure, merge, tag, release, or ten-run acceptance is authorized.

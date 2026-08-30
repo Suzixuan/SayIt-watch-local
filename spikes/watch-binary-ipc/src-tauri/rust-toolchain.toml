@@ -1,0 +1,6 @@
+# Pinned to the exact toolchain the accepted SayIt stack uses
+# (client/src-tauri/rust-toolchain.toml). The machine's rustup default is the GNU
+# host, which fails on the windows-* crates ("dlltool.exe: program not found");
+# the MSVC host is required, matching the accepted contract's build environment.
+[toolchain]
+channel = "stable-x86_64-pc-windows-msvc"

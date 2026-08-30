@@ -36,8 +36,8 @@ Only after PM manually accepts the received audio may the project unlock Deliver
 - The isolated source baseline and PM documents are prepared and pushed to the private `main` branch.
 - Delivery 1A was repaired, independently verified, and PM-accepted on `codex/review-watch-transport`.
 - The user confirmed the real received WAV by human playback.
-- Delivery 1B Z1 Provider contract revision 3 was independently re-reviewed and PM-accepted as **CONDITIONAL MATCH**. Repair 1's seven architecture corrections and Repair 2's exact final-chunk accounting are frozen. The only remaining condition is the isolated Tauri raw binary-IPC runtime spike.
-- The next and only unlocked Z slice is `docs/DELIVERY-1B-Z-BINARY-IPC-SPIKE-TASK.md`. External WAV ingress remains locked until PM accepts that runtime evidence.
+- Delivery 1B Z1 Provider contract revision 3 was independently re-reviewed and PM-accepted as **CONDITIONAL MATCH**. Repair 1's seven architecture corrections and Repair 2's exact final-chunk accounting are frozen. The only remaining condition was the isolated Tauri raw binary-IPC runtime spike.
+- The Z2 binary-IPC spike (stage 6A) has been executed by colleague Z and **PASSED** in the packaged Windows debug WebView2 harness. It awaits PM independent review; per the task, PASS upgrades the contract's PCM-transfer condition (CONDITIONAL MATCH → MATCH) only on PM acceptance. External WAV ingress remains locked.
 - The PM-reviewed Watch UI direction is frozen separately in `docs/WATCH-UI-Z-HANDOFF.md`; it is reference only until an explicit UI implementation slice is unlocked.
 
 ## Colleague Z quick start
@@ -109,6 +109,16 @@ PM compared revision 3 commit `c89c0bc36bccc32281ca3158e1f111511467d39f` against
 - Regression review passed: the diff does not weaken the accepted Repair 1 lifecycle, two-phase reservation, two-sided cleanup, Rust lease/reload recovery, pre-`201` acknowledgement, no-`stopCapture` external finalization, probe-once rule, or AI-off/reuse boundaries.
 
 Decision: the Provider contract is frozen and stage 6 is accepted as **CONDITIONAL MATCH**. This is a documentation/architecture acceptance, not Delivery 1B product completion. Only the isolated ≥9 MiB binary-IPC spike is unlocked; task package: `docs/DELIVERY-1B-Z-BINARY-IPC-SPIKE-TASK.md`.
+
+## Delivery 1B Z2 binary-IPC spike (Colleague Z, 2026-08-29) — PASS, awaiting PM review
+
+- Deliverable: `spikes/watch-binary-ipc/**` only (isolated harness; plus this file and `PROJECT_PROGRESS.md`). No SayIt product file — `client/**`, `watch/**`, receiver, Provider, Orchestrator, History, Paste, AI, target/focus, release configuration, or the accepted dependency locks — was touched. `docs/WATCH-UI-Z-HANDOFF.md` was not implemented.
+- **Result: PASS** in the packaged Windows debug WebView2 app (not a browser/dev-server page), reproduced across two runs (invoke elapsed 126 ms / 113 ms). Runtime panel (PASS/FAIL, versions, payload length, JS type, SHA-256 match, sentinels, fallback-warning count) was captured as a screenshot retained session-locally outside the repository; the payload is never logged or committed.
+- Resolved stack (as pinned and as reported by the harness panel): Rust `tauri =2.10.3` (`Cargo.lock`), `@tauri-apps/api 2.10.1`, `@tauri-apps/cli 2.10.1`, toolchain `stable-x86_64-pc-windows-msvc` (rustc 1.98.0) — the same MSVC toolchain the accepted SayIt stack pins.
+- Numeric result: payload 9,438,418 bytes (9 MiB + 1234; even length; deliberately not an 8192-byte/4096-sample chunk multiple) returned by `tauri::ipc::Response::new(Vec<u8>)`; JS received `[object ArrayBuffer]` with `byteLength` exactly 9,438,418; SHA-256 expected === actual: `ebf783be13a56bd212a474803c6b8d6da391b10bc0cfc5721f9422c90c045750` (WebCrypto subtle over the raw buffer, no base64/number-array conversion); sentinels first/middle/last 7/190/86 (Rust) === (JS) with independent formula re-derivation; **fallback-warning count 0** (`console.warn` wrapped programmatically across the whole invoke window and restored on all paths; total warnings 0).
+- Explicit statement: `customProtocolIpcFailed` / the postMessage fallback message **did not appear**. The custom-protocol IPC path delivered the raw bytes.
+- Commands and exit codes: `npm install` (0), `npm test` — vitest 8/8 passed (0), `npm run build` — versions.json + vite (0), `cargo test` — 4/4 payload/hash unit tests passed (0), `npx tauri build --debug --no-bundle` (0). Packaged debug executable: `spikes/watch-binary-ipc/src-tauri/target/debug/spike-binary-ipc.exe`, SHA-256 `940a58476ac390998b352a73aa4a741f97c08866a799002685d2020e02c0abf7` (not committed).
+- Environment findings recorded for the implementation slice: (1) the machine's rustup default is the **GNU** host, under which the `windows-*` crates fail with `dlltool.exe: program not found` — the harness pins `stable-x86_64-pc-windows-msvc` exactly like `client/src-tauri/rust-toolchain.toml`; any new Rust workspace in this repository needs the same pin. (2) A fresh lock resolution drifts past the accepted stack (e.g. `tauri-runtime-wry 2.11.4` breaks `tauri 2.10.3` compilation with an E0308 `new_window_handler` signature change); the harness lock pins the Tauri family to the accepted versions (`tauri-runtime`/`tauri-runtime-wry 2.10.1`, `tauri-utils 2.8.3`, `tauri-build 2.5.6`, `tauri-codegen`/`tauri-macros 2.5.5`, `wry 0.54.4`, `muda 0.17.1`, `tao 0.34.8`).
 
 ## Delivery 1A source/build evidence (Colleague D, 2026-08-29)
 

@@ -1,0 +1,21 @@
+{
+  "name": "watch-binary-ipc-spike",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Z2 isolated Tauri v2 binary-IPC runtime proof. Not SayIt product code.",
+  "scripts": {
+    "versions": "node scripts/write-versions.mjs",
+    "build": "npm run versions && vite build",
+    "test": "vitest run",
+    "spike:build": "npm run build && tauri build --debug --no-bundle"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "2.10.1"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.10.1",
+    "vite": "^6.0.3",
+    "vitest": "^4.1.4"
+  }
+}

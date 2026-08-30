@@ -1,0 +1,6 @@
+{
+  "identifier": "default",
+  "description": "Default capability for the isolated spike window; application commands need no ACL entries.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

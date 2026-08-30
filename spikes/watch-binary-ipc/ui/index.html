@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Z2 Binary IPC Spike — running…</title>
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        margin: 0; padding: 24px; font-family: Consolas, "Cascadia Mono", monospace;
+        background: #101418; color: #d7dde3; font-size: 14px; line-height: 1.5;
+      }
+      h1 { font-size: 16px; margin: 0 0 4px; color: #9fb3c8; font-weight: 600; }
+      #verdict { font-size: 30px; font-weight: 700; margin: 10px 0 16px; letter-spacing: 1px; }
+      #verdict.pass { color: #3ddc84; }
+      #verdict.fail { color: #ff5370; }
+      table { border-collapse: collapse; width: 100%; max-width: 780px; }
+      td { padding: 4px 10px 4px 0; vertical-align: top; border-bottom: 1px solid #1d242b; }
+      td.k { color: #7f95a8; white-space: nowrap; width: 220px; }
+      td.v { word-break: break-all; }
+      .ok { color: #3ddc84; } .bad { color: #ff5370; }
+      .note { margin-top: 14px; color: #66788a; font-size: 12px; max-width: 780px; }
+    </style>
+  </head>
+  <body>
+    <h1>Delivery 1B — Z2 Binary IPC Spike (isolated harness, not SayIt product code)</h1>
+    <div id="verdict">… running</div>
+    <table id="panel"></table>
+    <p class="note">
+      Rust command returns <code>tauri::ipc::Response::new(Vec&lt;u8&gt;)</code> with a deterministic
+      9,438,418-byte payload (9 MiB + 1234, not an 8192-byte chunk multiple). JS verifies
+      ArrayBuffer type, exact byteLength, first/middle/last sentinels, SHA-256 equality, absence of
+      base64/JSON-number-array conversion, and zero custom-protocol fallback warnings (console.warn
+      captured programmatically during the invoke window).
+    </p>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

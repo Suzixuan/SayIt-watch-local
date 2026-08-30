@@ -1,4 +1,5 @@
 # 固定使用 MSVC 工具链：本仓库需 dlltool 无关、且 C++ 引擎用 MSVC 编译。
 # GNU 目标（x86_64-pc-windows-gnu）会因缺少 dlltool 且与 MSVC 的 transcribe-cpp 不匹配而构建失败。
 [toolchain]
-channel = "stable-x86_64-pc-windows-msvc"
+channel = "stable"
+targets = ["x86_64-pc-windows-msvc"]

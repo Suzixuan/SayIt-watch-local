@@ -75,9 +75,17 @@ windows = { version = "0.58", features = [
   "Win32_UI_Shell_PropertiesSystem",
   "Win32_Media_Audio",
   "Win32_Media_Audio_Endpoints",
+  # Delivery 1A watch receiver: atomic ReplaceFileW (write-through) for received_watch.wav
+  "Win32_Storage_FileSystem",
 ] }
 # 与 tauri/wry 内部同版本，用于挂 WebView2 的 PermissionRequested 处理器（把麦克风置为持久授权）
 webview2-com = "0.38"
+
+# ── Delivery 1A watch transport receiver (debug-only) ──
+# 阻塞式 tiny_http 监听器。依赖本身常驻 Cargo 图内，但 watch_receiver 模块
+# 在 main.rs 中以 #[cfg(debug_assertions)] 声明，release 构建不编译该模块，
+# 也没有任何接收端启动路径（含 release-guard 测试）。
+tiny_http = "0.12"
 
 # Release 体积/性能优化。panic 保持 unwind：Tauri 与 catch_unwind 依赖它，
 # 换成 abort 会让引擎 panic 直接杀进程。

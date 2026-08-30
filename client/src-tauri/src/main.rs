@@ -11,6 +11,10 @@ mod context;
 mod inject;
 mod providers;
 mod models;
+// Delivery 1A debug-only Windows LAN receiver. Compiled and started ONLY under
+// debug_assertions; release builds contain no active receiver startup path.
+#[cfg(debug_assertions)]
+mod watch_receiver;
 
 use storage::Storage;
 use window::WindowState;
@@ -233,6 +237,18 @@ fn main() {
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join("com.sayit.app")
         .join("sayit.db");
+
+    // Delivery 1A: debug-only watch receiver. It binds one explicit RFC1918 LAN
+    // IPv4 and serves /api/health + /api/watch/audio. Missing or invalid
+    // configuration fails closed (receiver does not start). Never starts in
+    // release builds. Emits no frontend events and touches no ASR/Provider code.
+    #[cfg(debug_assertions)]
+    {
+        match watch_receiver::start() {
+            Ok(()) => log::info!("Watch receiver startup requested (debug build)"),
+            Err(e) => log::warn!("Watch receiver not started: {}", e),
+        }
+    }
 
     let storage = Storage::new(db_path).expect("failed to initialize SQLite storage");
 

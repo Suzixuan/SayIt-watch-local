@@ -1,0 +1,66 @@
+plugins {
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.compose)
+}
+
+android {
+    namespace = "com.sayit.watch"
+    compileSdk = 34
+
+    defaultConfig {
+        applicationId = "com.sayit.watch.debug"
+        // Development candidate, not a release.
+        versionCode = 1
+        versionName = "0.2.0-dev.1"
+        minSdk = 30
+        targetSdk = 34
+    }
+
+    buildTypes {
+        debug {
+            // Cleartext is permitted only in the debug overlay manifest
+            // (src/debug/AndroidManifest.xml). Nothing here re-enables it.
+        }
+        release {
+            isMinifyEnabled = false
+            // Release runtime code and release manifest deny cleartext.
+            // No usable HTTP sender exists in release code paths.
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
+    testOptions {
+        unitTests {
+            isReturnDefaultValues = true
+        }
+    }
+    lint {
+        abortOnError = true
+        checkReleaseBuilds = true
+    }
+}
+
+dependencies {
+    implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.activity.compose)
+    implementation(libs.wear.compose.material)
+    implementation(libs.wear.compose.foundation)
+    implementation(libs.kotlinx.coroutines.android)
+
+    testImplementation(libs.junit)
+    testImplementation(libs.androidx.test.ext.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
+}

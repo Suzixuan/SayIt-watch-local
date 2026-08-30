@@ -46,4 +46,3 @@ Do not change product source, tests, dependencies, generated files, UI files, WA
 - Confirmation that revision 2's other Repair 1 decisions were not weakened.
 
 Push and stop. The binary-IPC spike and all Delivery 1B product implementation remain unauthorized until PM accepts this repair.
-

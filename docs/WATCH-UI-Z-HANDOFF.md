@@ -63,4 +63,3 @@ No formal pairing, Streaming, WebSocket, Opus, mDNS, QR code, auto-discovery, ba
 - No displayed status overclaims transcription or Paste success.
 - Configuration remains usable on the real 480x480 round screen without clipped controls.
 - Existing Delivery 1A transport tests and release cleartext restrictions remain green.
-

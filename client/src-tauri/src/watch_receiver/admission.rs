@@ -131,42 +131,51 @@ impl AdmissionGate {
         matches!(&*state, GateState::Reserved { request_id: id, .. } if id == request_id)
     }
 
-    /// Receiver side: submit the admission request and block (bounded) for the
-    /// WebView decision. Performs lazy lease reclamation first; an expired
-    /// `Reserved` gate is reclaimed and logged, then the fresh request proceeds.
-    /// Fails closed with `bridge_timeout` when the WebView never answers.
-    pub fn request_admission(&self, request_id: &str) -> AdmissionOutcome {
-        let (tx, rx) = std::sync::mpsc::channel::<AdmissionDecision>();
-        {
-            let mut pending = self.pending_admission.lock().expect("gate poisoned");
-            if pending.is_some() {
-                return AdmissionOutcome::Rejected {
-                    reason: "already_reserved".to_string(),
-                };
-            }
-            // Lazy lease reclamation before deciding on the fresh request.
-            let mut state = self.state.lock().expect("admission gate state poisoned");
-            if let GateState::Reserved {
-                request_id: reserved_id,
-                reserved_at,
-            } = &*state
-            {
-                if reserved_at.elapsed() > self.lease {
-                    log::warn!(
-                        "watch admission: lease expired for request {}; gate reclaimed",
-                        reserved_id
-                    );
-                    *state = GateState::Idle;
-                }
-            }
-            if matches!(&*state, GateState::Reserved { .. }) {
-                return AdmissionOutcome::Rejected {
-                    reason: "already_reserved".to_string(),
-                };
-            }
-            *pending = Some((request_id.to_string(), tx));
+    /// Receiver side, step 1 (Repair 2): perform the mutual-exclusion checks and
+    /// lease reclamation, then register the pending admission waiter. The waiter
+    /// is visible to `resolve_admission` the moment this returns — BEFORE the
+    /// receiver emits `watch://admission-request` — so a WebView answering
+    /// synchronously inside the emit call stack always finds it.
+    /// Fails closed with a fixed reason (busy / not ready) without any waiter.
+    pub fn begin_admission(
+        &self,
+        request_id: &str,
+    ) -> Result<std::sync::mpsc::Receiver<AdmissionDecision>, String> {
+        let mut pending = self.pending_admission.lock().expect("gate poisoned");
+        if pending.is_some() {
+            return Err("already_reserved".to_string());
         }
+        // Lazy lease reclamation before deciding on the fresh request.
+        let mut state = self.state.lock().expect("admission gate state poisoned");
+        if let GateState::Reserved {
+            request_id: reserved_id,
+            reserved_at,
+        } = &*state
+        {
+            if reserved_at.elapsed() > self.lease {
+                log::warn!(
+                    "watch admission: lease expired for request {}; gate reclaimed",
+                    reserved_id
+                );
+                *state = GateState::Idle;
+            }
+        }
+        if matches!(&*state, GateState::Reserved { .. }) {
+            return Err("already_reserved".to_string());
+        }
+        let (tx, rx) = std::sync::mpsc::channel::<AdmissionDecision>();
+        *pending = Some((request_id.to_string(), tx));
+        Ok(rx)
+    }
 
+    /// Receiver side, step 2 (Repair 2): bounded wait on the waiter registered by
+    /// `begin_admission`. Accepted → `Reserved`; rejected → back to `Idle`;
+    /// timeout → fail-closed `bridge_timeout` with the waiter and gate cleaned.
+    pub fn wait_admission(
+        &self,
+        request_id: &str,
+        rx: std::sync::mpsc::Receiver<AdmissionDecision>,
+    ) -> AdmissionOutcome {
         let decision = match rx.recv_timeout(self.admission_timeout) {
             Ok(decision) => decision,
             Err(_) => {
@@ -207,10 +216,21 @@ impl AdmissionGate {
         }
     }
 
-    /// Receiver side: bounded wait for the post-save run-start acknowledgement.
-    /// The gate must already be `Reserved` for this exact request ID. Any failure
-    /// (ack rejection, timeout) aborts the reservation before returning.
-    pub fn wait_run_started(&self, request_id: &str) -> Result<(), String> {
+    /// Convenience composition of [`begin_admission`] + [`wait_admission`].
+    pub fn request_admission(&self, request_id: &str) -> AdmissionOutcome {
+        match self.begin_admission(request_id) {
+            Err(reason) => AdmissionOutcome::Rejected { reason },
+            Ok(rx) => self.wait_admission(request_id, rx),
+        }
+    }
+
+    /// Receiver side, ack step 1 (Repair 2 symmetry): register the run-start ack
+    /// waiter BEFORE `watch://audio-ready` is emitted. Requires the live
+    /// reservation for this exact request ID.
+    pub fn begin_run_ack(
+        &self,
+        request_id: &str,
+    ) -> Result<std::sync::mpsc::Receiver<Result<(), String>>, String> {
         {
             let state = self.state.lock().expect("admission gate state poisoned");
             match &*state {
@@ -218,14 +238,22 @@ impl AdmissionGate {
                 _ => return Err("stale_or_unreserved".to_string()),
             }
         }
-        let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
-        {
-            let mut pending = self.pending_ack.lock().expect("gate poisoned");
-            if pending.is_some() {
-                return Err("ack_already_pending".to_string());
-            }
-            *pending = Some((request_id.to_string(), tx));
+        let mut pending = self.pending_ack.lock().expect("gate poisoned");
+        if pending.is_some() {
+            return Err("ack_already_pending".to_string());
         }
+        let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
+        *pending = Some((request_id.to_string(), tx));
+        Ok(rx)
+    }
+
+    /// Receiver side, ack step 2: bounded wait on the registered ack waiter.
+    /// Any failure (rejection, timeout) aborts the reservation before returning.
+    pub fn wait_run_ack(
+        &self,
+        request_id: &str,
+        rx: std::sync::mpsc::Receiver<Result<(), String>>,
+    ) -> Result<(), String> {
         let outcome = match rx.recv_timeout(self.ack_timeout) {
             Ok(Ok(())) => Ok(()),
             Ok(Err(reason)) => Err(reason),
@@ -236,6 +264,12 @@ impl AdmissionGate {
             self.abort(request_id, reason);
         }
         outcome
+    }
+
+    /// Convenience composition of [`begin_run_ack`] + [`wait_run_ack`].
+    pub fn wait_run_started(&self, request_id: &str) -> Result<(), String> {
+        let rx = self.begin_run_ack(request_id)?;
+        self.wait_run_ack(request_id, rx)
     }
 
     /// WebView side: complete a pending admission decision. Returns false when

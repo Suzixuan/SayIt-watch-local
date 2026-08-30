@@ -1110,6 +1110,15 @@ export class RecorderOrchestrator {
           addRuntimeEvent('warn', 'backend', 'Ignored error callback from a stale session', { msg, state: this.state, runId })
           return
         }
+        // Delivery 1B (Z3 Repair 3): an external Watch run must never trigger the
+        // mic-only teardown below. Its cleanup is request/run-correlated: the
+        // Provider session is cancelled, the reservation clears through
+        // finishRun (which notifies the Rust gate exactly once), and overlay/Esc
+        // state resets with the shared tail.
+        const externalRes =
+          this.externalReservation !== null && this.externalReservation.runId === runId
+            ? this.externalReservation
+            : null
         const friendlyFailure = describeProviderError(msg)
         addRuntimeEvent('error', 'backend', msg)
         this.clearProcessingTimeout()
@@ -1119,10 +1128,25 @@ export class RecorderOrchestrator {
 
         // 停止音频采集，并进入不可再触发 stopRecording 的收尾状态。
         if (this.state === 'recording') {
-          this.overlayService.stopListeningTicker()
-          void stopCapture().catch(() => { })
-          this.restoreSystemMuteIfNeeded()
-          this.transition('processing')
+          if (externalRes) {
+            addRuntimeEvent('warn', 'recorder', 'External run provider error; skipping mic teardown', {
+              requestId: externalRes.requestId,
+              runId,
+            })
+            this.transition('processing')
+            this.provider.cancel()
+            if (this.provider.mode === 'server') this.ensureConnection()
+          } else {
+            this.overlayService.stopListeningTicker()
+            void stopCapture().catch(() => { })
+            this.restoreSystemMuteIfNeeded()
+            this.transition('processing')
+          }
+        } else if (externalRes) {
+          // Processing-stage external error: cancel the dead session; the shared
+          // tail below releases the gate via finishRun.
+          this.provider.cancel()
+          if (this.provider.mode === 'server') this.ensureConnection()
         }
 
         // 快照本代音频和元数据；每个异步 artifact 边界后均验代并清理失效产物。

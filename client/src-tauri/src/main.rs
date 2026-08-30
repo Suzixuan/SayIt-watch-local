@@ -361,8 +361,11 @@ fn main() {
             {
                 let handle = app.handle().clone();
                 watch_receiver::server::set_event_sink(std::sync::Arc::new(
-                    move |event: &str, payload: String| {
+                    move |event: &str, payload: serde_json::Value| {
                         use tauri::Emitter;
+                        // Repair 1: the payload is a serde_json object, so Tauri
+                        // delivers a structured object to the WebView — never a
+                        // JSON string.
                         let _ = handle.emit(event, payload);
                     },
                 ));

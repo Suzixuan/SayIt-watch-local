@@ -137,6 +137,19 @@ describe('watchIngress admission flow', () => {
     expect(handlers.abortExternalRun).toHaveBeenCalledWith(REQ, 'admission_resolve_unmatched')
   })
 
+  it('treats a string payload (legacy/buggy emitter) as invalid — fail-closed', async () => {
+    // Repair 1 regression: a Rust side that emits a pre-formatted JSON string
+    // would deliver `payload` as a string here. The adapter must ignore it (the
+    // receiver then times out fail-closed) and must NOT treat it as success.
+    const { handlers, listeners } = await setup()
+
+    await emit(listeners, 'watch://admission-request', JSON.stringify({ requestId: REQ, sampleCount: 100 }))
+
+    expect(handlers.tryReserveExternalRun).not.toHaveBeenCalled()
+    expect(handlers.prepareExternalRun).not.toHaveBeenCalled()
+    expect(invokeMock).not.toHaveBeenCalledWith('watch_admission_resolve', expect.anything())
+  })
+
   it('ignores malformed admission payloads (receiver times out fail-closed)', async () => {
     const { handlers, listeners } = await setup()
 

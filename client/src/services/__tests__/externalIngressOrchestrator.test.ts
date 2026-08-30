@@ -500,6 +500,71 @@ describe('external run lifecycle (§B.5)', () => {
   })
 })
 
+describe('Z3 Repair 3 — provider onError during an external run', () => {
+  it('never calls mic stopCapture; releases the gate exactly once; no Paste; single History entry', async () => {
+    const { recorder, handlers } = await makeRecorder()
+    expect(handlers.tryReserveExternalRun(REQ)).toBe(true)
+    expect(await handlers.prepareExternalRun(REQ)).toEqual({ ok: true })
+
+    // Fire the provider error synchronously inside the feed (second chunk), so
+    // the run is in its `recording` phase with ≥0.5 s accounted samples.
+    let sendCalls = 0
+    fake.provider.sendAudio.mockImplementation((_buffer?: ArrayBuffer) => {
+      fake.order.push('sendAudio')
+      sendCalls++
+      if (sendCalls === 2) providerCallbacks().onError('provider exploded mid-feed')
+    })
+
+    const ok = await handlers.beginExternalRun(REQ, makePcm(), SAMPLE_COUNT)
+    await flushAsync(4)
+
+    expect(ok).toBe(false)
+    // Mic-only teardown must not have run.
+    expect(audio.stopCapture).not.toHaveBeenCalled()
+    // The feed aborted before any finalize/stop.
+    expect(fake.order).not.toContain('stop')
+    // Provider session cancelled; gate released exactly once via finishRun.
+    expect(fake.order).toContain('cancel')
+    const abortCalls = vi.mocked(invoke).mock.calls.filter(([cmd]) => cmd === 'watch_run_aborted')
+    expect(abortCalls.length).toBe(1)
+    expect(abortCalls[0]).toEqual(['watch_run_aborted', { requestId: REQ, reason: 'run_finished' }])
+    // Standard single error-history entry; Paste never reached.
+    expect(addHistory).toHaveBeenCalledTimes(1)
+    expect(bridge.pasteText).not.toHaveBeenCalled()
+    expect(recorder.getState()).toBe('idle')
+    expect(handlers.hasExternalReservation(REQ)).toBe(false)
+    // The orchestrator is reusable for the next run.
+    expect(handlers.tryReserveExternalRun(REQ)).toBe(true)
+  })
+
+  it('a stale second onError cannot duplicate cleanup or History', async () => {
+    const { recorder, handlers } = await makeRecorder()
+    expect(handlers.tryReserveExternalRun(REQ)).toBe(true)
+    expect(await handlers.prepareExternalRun(REQ)).toEqual({ ok: true })
+
+    let sendCalls = 0
+    fake.provider.sendAudio.mockImplementation((_buffer?: ArrayBuffer) => {
+      fake.order.push('sendAudio')
+      sendCalls++
+      if (sendCalls === 2) providerCallbacks().onError('first error')
+    })
+
+    const ok = await handlers.beginExternalRun(REQ, makePcm(), SAMPLE_COUNT)
+    expect(ok).toBe(false)
+    await flushAsync(4)
+
+    // A second error from the already-finished generation must be dropped stale.
+    providerCallbacks().onError('second error')
+    await flushAsync(4)
+
+    expect(addHistory).toHaveBeenCalledTimes(1)
+    const abortCalls = vi.mocked(invoke).mock.calls.filter(([cmd]) => cmd === 'watch_run_aborted')
+    expect(abortCalls.length).toBe(1)
+    expect(recorder.getState()).toBe('idle')
+    expect(audio.stopCapture).not.toHaveBeenCalled()
+  })
+})
+
 describe('microphone path after the finalizeRecording extraction', () => {
   it('still stops, finalizes and reaches processing exactly as before', async () => {
     const { recorder } = await makeRecorder()

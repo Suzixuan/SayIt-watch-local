@@ -1,4 +1,61 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">SayIt Watch Debug</string>
+
+    <!-- Screens -->
+    <string name="screen_config_title">SayIt Watch · Setup</string>
+    <string name="screen_ready_title">Ready</string>
+    <string name="recording_title">Recording</string>
+
+    <!-- Developer configuration -->
+    <string name="config_pc_ip">PC IP (RFC1918)</string>
+    <string name="config_port">Port</string>
+    <string name="config_dev_token">Dev Token (64 hex)</string>
+    <string name="config_tap_to_edit">— tap to edit —</string>
+    <string name="config_show_token">Show</string>
+    <string name="config_hide_token">Hide</string>
+    <string name="config_save_apply">Save &amp; Apply</string>
+    <string name="config_validation_hint">Needs a valid RFC1918 IP, port and 64-hex token.</string>
+    <string name="config_back">Back to Ready</string>
+
+    <!-- Ready / health -->
+    <string name="health_unchecked">Transport: not checked</string>
+    <string name="health_available">Transport available</string>
+    <string name="health_unavailable">Transport unavailable</string>
+    <string name="health_check_action">Check / Refresh</string>
+    <string name="ready_grant_mic">Grant Mic</string>
+    <string name="ready_record">Record</string>
+    <string name="ready_open_config">Settings</string>
+    <string name="pending_upload_badge">Pending upload</string>
+
+    <!-- Recording -->
+    <string name="recording_stop">Stop</string>
+    <string name="recording_sample_count">%1$d samples</string>
+    <string name="recording_cancel_hint">Cancel — stop and discard (no upload)</string>
+
+    <!-- Upload inline states (transport-only wording; never "Transcribed") -->
+    <string name="uploading_title">Uploading…</string>
+    <string name="uploading_body">Sending the recording to the PC. Keep the watch on.</string>
+    <string name="upload_failed_title">Upload failed</string>
+    <string name="upload_failed_generic">The PC did not accept the upload.</string>
+    <string name="upload_failed_retained">The recording is kept. Retry resends it — no re-recording.</string>
+    <string name="upload_failed_retry">Retry</string>
+    <string name="upload_failed_later">Later</string>
+    <string name="uploaded_title">Uploaded to PC</string>
+    <string name="uploaded_body">The PC received the recording.</string>
+
+    <!-- Discard prompt (a retained WAV is never silently overwritten) -->
+    <string name="discard_prompt_title">Pending upload</string>
+    <string name="discard_prompt_body">A recording is still waiting to upload. Start a new one and discard it?</string>
+    <string name="discard_keep">Keep it</string>
+    <string name="discard_confirm">Discard &amp; record</string>
+
+    <!-- Actions / status -->
+    <string name="action_ok">OK</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="status_idle">Idle</string>
+    <string name="status_ready">Ready — 16 kHz verified</string>
+    <string name="status_recording">Recording…</string>
+    <string name="status_recorded">Recorded (%1$d samples)</string>
+    <string name="status_failure">Failure</string>
 </resources>

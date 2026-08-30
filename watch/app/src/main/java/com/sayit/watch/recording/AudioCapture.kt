@@ -64,12 +64,17 @@ class AudioCapture {
      * by each AudioRecord.read call into [pcmSink] — unused buffer bytes are
      * never written. Returns the total captured sample count.
      *
+     * [onProgress] is invoked with the cumulative captured sample count after
+     * every read, so callers can render a live, sample-derived duration without
+     * relying on wall-clock time.
+     *
      * @throws AudioCaptureException on initialization failure.
      */
     fun record(
         maxDurationMs: Int,
         isActive: () -> Boolean,
         pcmSink: (ByteArray, Int) -> Unit,
+        onProgress: (Int) -> Unit = {},
     ): Int {
         val minBuffer = AudioRecord.getMinBufferSize(
             WavWriter.SAMPLE_RATE,
@@ -117,6 +122,7 @@ class AudioCapture {
                 }
                 pcmSink(bytes, byteCount)
                 capturedSamples += read
+                onProgress(capturedSamples)
             }
         } finally {
             runCatching { record.stop() }

@@ -4,8 +4,9 @@
 //! - `SAYIT_WATCH_BIND_IP`: exactly one RFC1918 IPv4. `0.0.0.0`, loopback,
 //!   hostnames, IPv6, public and link-local addresses are rejected.
 //! - `SAYIT_WATCH_PORT`: integer in 1..=65535.
-//! - `SAYIT_WATCH_DEV_TOKEN`: at least 32 bytes of unpredictable token material
-//!   after decoding/validation.
+//! - `SAYIT_WATCH_DEV_TOKEN`: frozen representation — exactly 64 hexadecimal
+//!   characters (32 decoded bytes = 256 bits) after trimming. The identical
+//!   rule is enforced on the Watch side (DevTokenValidator).
 //!
 //! Missing or invalid configuration means the receiver does not start (fail
 //! closed). Only the bind IP/port and a token-present boolean are ever logged.
@@ -23,11 +24,9 @@ pub struct ReceiverConfig {
 impl ReceiverConfig {
     /// True when a validated token is present (the only token fact we log).
     pub fn has_dev_token(&self) -> bool {
-        self.dev_token.len() >= MIN_TOKEN_BYTES
+        validate_token(&self.dev_token).is_ok()
     }
 }
-
-pub const MIN_TOKEN_BYTES: usize = 32;
 
 /// Parses and validates configuration. Returns an error for any missing or
 /// invalid variable — the receiver then does not start.
@@ -43,7 +42,7 @@ pub fn load_from_env() -> Result<ReceiverConfig, String> {
     Ok(ReceiverConfig {
         bind_ip,
         port,
-        dev_token: token,
+        dev_token: token.trim().to_string(),
     })
 }
 
@@ -96,19 +95,15 @@ pub fn parse_port(raw: &str) -> Result<u16, String> {
     Ok(port as u16)
 }
 
+/// Frozen Dev Token rule: exactly 64 hexadecimal characters after trimming
+/// (32 decoded bytes = 256 bits). Mirrors the Watch's DevTokenValidator.
 pub fn validate_token(token: &str) -> Result<(), String> {
-    let bytes = token.as_bytes();
-    // At least 32 bytes of material. We accept base64 (typical 43+ chars) or
-    // raw; the requirement is byte length after trimming.
     let trimmed = token.trim();
-    if trimmed.is_empty() {
-        return Err("SAYIT_WATCH_DEV_TOKEN must not be empty".to_string());
+    if trimmed.len() != 64 {
+        return Err("SAYIT_WATCH_DEV_TOKEN must be exactly 64 characters (32 bytes of hex)".to_string());
     }
-    if bytes.len() < MIN_TOKEN_BYTES {
-        return Err(format!(
-            "SAYIT_WATCH_DEV_TOKEN must be at least {} bytes",
-            MIN_TOKEN_BYTES
-        ));
+    if !trimmed.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err("SAYIT_WATCH_DEV_TOKEN must be hexadecimal characters only".to_string());
     }
     Ok(())
 }
@@ -141,7 +136,7 @@ mod tests {
 
     #[test]
     fn loads_valid_configuration() {
-        set_env("192.168.1.50", "9090", &"x".repeat(32));
+        set_env("192.168.1.50", "9090", &"a".repeat(64));
         let cfg = load_from_env().expect("valid env");
         assert_eq!(cfg.bind_ip, Ipv4Addr::new(192, 168, 1, 50));
         assert_eq!(cfg.port, 9090);
@@ -153,7 +148,7 @@ mod tests {
     fn fails_on_missing_configuration() {
         clear_env();
         assert!(load_from_env().is_err());
-        set_env("192.168.1.50", "9090", &"x".repeat(32));
+        set_env("192.168.1.50", "9090", &"a".repeat(64));
         // missing port
         std::env::remove_var("SAYIT_WATCH_PORT");
         assert!(load_from_env().is_err());
@@ -197,12 +192,25 @@ mod tests {
     }
 
     #[test]
-    fn rejects_short_token() {
-        assert!(validate_token(&"x".repeat(31)).is_err());
+    fn frozen_64_hex_token_rule() {
+        // 63 chars -> reject
+        assert!(validate_token(&"a".repeat(63)).is_err());
+        // 65 chars -> reject
+        assert!(validate_token(&"a".repeat(65)).is_err());
+        // empty -> reject
         assert!(validate_token("").is_err());
-        assert!(validate_token(&"x".repeat(32)).is_ok());
-        assert!(validate_token(&"x".repeat(64)).is_ok());
-        // base64-style 44-byte token passes
-        assert!(validate_token("YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY3ODkwYWJjZGVm").is_ok());
+        // non-hex -> reject
+        assert!(validate_token(&"g".repeat(64)).is_err());
+        assert!(validate_token(&"-".repeat(64)).is_err());
+        // 32 chars (old rule) -> reject
+        assert!(validate_token(&"a".repeat(32)).is_err());
+        // exactly 64 hex -> accept (lower and upper case)
+        assert!(validate_token(&"a".repeat(64)).is_ok());
+        assert!(validate_token(&"A".repeat(64)).is_ok());
+        assert!(validate_token("abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789").is_ok());
+        // surrounding whitespace is trimmed
+        assert!(validate_token(&format!("  {}  ", "a".repeat(64))).is_ok());
+        // 63 hex + whitespace still 63 after trim -> reject
+        assert!(validate_token(&format!("  {}  ", "a".repeat(63))).is_err());
     }
 }

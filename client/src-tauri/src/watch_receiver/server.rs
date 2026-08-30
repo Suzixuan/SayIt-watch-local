@@ -77,6 +77,33 @@ impl ReceiverServer {
             return json_response(request, StatusCode(401), r#"{"error":"unauthorized"}"#);
         }
 
+        // 1.5. X-Request-Id must be a well-formed UUID; the receiver preserves it
+        // end to end and echoes the same value in the 201 response and success log.
+        let request_id = match request
+            .headers()
+            .iter()
+            .find(|h| h.field.equiv("X-Request-Id"))
+            .map(|h| h.value.as_str().trim())
+        {
+            Some(raw) => match uuid::Uuid::parse_str(raw) {
+                Ok(u) => u.to_string(),
+                Err(_) => {
+                    return json_response(
+                        request,
+                        StatusCode(400),
+                        r#"{"error":"X-Request-Id must be a UUID"}"#,
+                    );
+                }
+            },
+            None => {
+                return json_response(
+                    request,
+                    StatusCode(400),
+                    r#"{"error":"X-Request-Id header is required"}"#,
+                );
+            }
+        };
+
         // 2. Content type must be audio/wav.
         let content_type = request
             .headers()
@@ -147,9 +174,9 @@ impl ReceiverServer {
             }
         }
 
-        // 7. Success response (only after durable replacement).
+        // 7. Success response (only after durable replacement). Echo the request
+        // UUID exactly as received — never a locally generated unrelated ID.
         let sha = hex_sha256(&body);
-        let request_id = uuid::Uuid::new_v4().to_string();
         let body_json = format!(
             r#"{{"requestId":"{request_id}","bytes":{},"sampleCount":{},"audioDurationMs":{},"sha256":"{sha}"}}"#,
             body.len(),
@@ -157,7 +184,8 @@ impl ReceiverServer {
             info.duration_ms,
         );
         log::info!(
-            "watch receiver: saved received_watch.wav bytes={} samples={} durationMs={}",
+            "watch receiver: saved received_watch.wav requestId={} bytes={} samples={} durationMs={}",
+            request_id,
             body.len(),
             info.sample_count,
             info.duration_ms
@@ -326,7 +354,8 @@ mod tests {
         let cfg = Arc::new(ReceiverConfig {
             bind_ip: "127.0.0.1".parse().unwrap(),
             port: 0,
-            dev_token: "test-token-that-is-long-enough-32-bytes!".to_string(),
+            // Frozen 64-hex dev token for tests (never a real token).
+            dev_token: "abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234".to_string(),
         });
         let server = ReceiverServer::start(cfg).expect("bind");
         let addr = server.server.server_addr().to_string();
@@ -334,6 +363,19 @@ mod tests {
         // Give the accept loop a moment to start.
         std::thread::sleep(std::time::Duration::from_millis(50));
         addr
+    }
+
+    const TEST_TOKEN: &str = "abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234";
+    const TEST_BEARER: &str = "Bearer abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234";
+    const TEST_UUID: &str = "123e4567-e89b-12d3-a456-426614174000";
+
+    /// Standard authenticated headers with a valid X-Request-Id.
+    fn auth_headers() -> [(&'static str, &'static str); 3] {
+        [
+            ("Content-Type", "audio/wav"),
+            ("Authorization", TEST_BEARER),
+            ("X-Request-Id", TEST_UUID),
+        ]
     }
 
     fn raw_request(addr: &str, method: &str, path: &str, headers: &[(&str, &str)], body: &[u8]) -> String {
@@ -412,20 +454,49 @@ mod tests {
             &wav,
         );
         assert_eq!(status_of(&resp), 401);
-        // Valid token -> not 401
+        // Valid token + valid X-Request-Id -> not 401
+        let resp = raw_request(&addr, "POST", "/api/watch/audio", &auth_headers(), &wav);
+        assert_ne!(status_of(&resp), 401);
+        // Response must never contain the token.
+        assert!(!resp.contains(TEST_TOKEN));
+    }
+
+    #[test]
+    fn x_request_id_required_and_validated() {
+        isolate_dir();
+        let addr = start_test_server();
+        let wav = canonical_wav(100);
+
+        // Missing X-Request-Id -> 400
         let resp = raw_request(
             &addr,
             "POST",
             "/api/watch/audio",
             &[
                 ("Content-Type", "audio/wav"),
-                ("Authorization", "Bearer test-token-that-is-long-enough-32-bytes!"),
+                ("Authorization", TEST_BEARER),
             ],
             &wav,
         );
-        assert_ne!(status_of(&resp), 401);
-        // Response must never contain the token.
-        assert!(!resp.contains("test-token-that-is-long-enough-32-bytes!"));
+        assert_eq!(status_of(&resp), 400);
+
+        // Invalid (non-UUID) X-Request-Id -> 400
+        let resp = raw_request(
+            &addr,
+            "POST",
+            "/api/watch/audio",
+            &[
+                ("Content-Type", "audio/wav"),
+                ("Authorization", TEST_BEARER),
+                ("X-Request-Id", "not-a-uuid"),
+            ],
+            &wav,
+        );
+        assert_eq!(status_of(&resp), 400);
+
+        // Valid UUID -> 201
+        let resp = raw_request(&addr, "POST", "/api/watch/audio", &auth_headers(), &wav);
+        assert_eq!(status_of(&resp), 201);
     }
 
     #[test]
@@ -433,15 +504,24 @@ mod tests {
         isolate_dir();
         let addr = start_test_server();
         let wav = canonical_wav(100);
-        let auth = ("Authorization", "Bearer test-token-that-is-long-enough-32-bytes!");
 
-        // Wrong content type -> 400
-        let resp = raw_request(&addr, "POST", "/api/watch/audio", &[("Content-Type", "text/plain"), auth], &wav);
+        // Wrong content type -> 400 (auth + X-Request-Id valid)
+        let resp = raw_request(
+            &addr,
+            "POST",
+            "/api/watch/audio",
+            &[
+                ("Content-Type", "text/plain"),
+                ("Authorization", TEST_BEARER),
+                ("X-Request-Id", TEST_UUID),
+            ],
+            &wav,
+        );
         assert_eq!(status_of(&resp), 400);
 
         // >10 MiB -> 413 (Content-Length check)
         let huge = vec![0u8; MAX_BODY_BYTES + 1];
-        let resp = raw_request(&addr, "POST", "/api/watch/audio", &[("Content-Type", "audio/wav"), auth], &huge);
+        let resp = raw_request(&addr, "POST", "/api/watch/audio", &auth_headers(), &huge);
         assert_eq!(status_of(&resp), 413);
     }
 
@@ -449,17 +529,15 @@ mod tests {
     fn malformed_wav_rejected_400() {
         isolate_dir();
         let addr = start_test_server();
-        let auth = ("Authorization", "Bearer test-token-that-is-long-enough-32-bytes!");
-        let ct = ("Content-Type", "audio/wav");
 
         // Not a WAV at all
-        let resp = raw_request(&addr, "POST", "/api/watch/audio", &[ct, auth], b"hello world not a wav");
+        let resp = raw_request(&addr, "POST", "/api/watch/audio", &auth_headers(), b"hello world not a wav");
         assert_eq!(status_of(&resp), 400);
 
         // Truncated WAV
         let mut wav = canonical_wav(100);
         wav.truncate(50);
-        let resp = raw_request(&addr, "POST", "/api/watch/audio", &[ct, auth], &wav);
+        let resp = raw_request(&addr, "POST", "/api/watch/audio", &auth_headers(), &wav);
         assert_eq!(status_of(&resp), 400);
     }
 
@@ -481,13 +559,12 @@ mod tests {
         let dir = isolate_dir();
         let addr = start_test_server();
         let wav = canonical_wav(32000); // 1 second of 16 kHz mono
-        let auth = ("Authorization", "Bearer test-token-that-is-long-enough-32-bytes!");
-        let ct = ("Content-Type", "audio/wav");
 
-        let resp = raw_request(&addr, "POST", "/api/watch/audio", &[ct, auth], &wav);
+        let resp = raw_request(&addr, "POST", "/api/watch/audio", &auth_headers(), &wav);
         let status = status_of(&resp);
         assert_eq!(status, 201);
-        assert!(resp.contains("\"requestId\""));
+        // The echoed requestId must be exactly the X-Request-Id we sent.
+        assert!(resp.contains(&format!("\"requestId\":\"{TEST_UUID}\"")));
         assert!(resp.contains("\"bytes\":32044")); // 44 header + 32000
         assert!(resp.contains("\"sampleCount\":16000"));
         assert!(resp.contains("\"audioDurationMs\":1000"));

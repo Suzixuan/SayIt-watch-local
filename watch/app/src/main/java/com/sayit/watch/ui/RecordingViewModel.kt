@@ -93,7 +93,14 @@ class RecordingViewModel(
             val samples = withContext(Dispatchers.IO) {
                 val pcm = java.io.ByteArrayOutputStream()
                 try {
-                    val count = capture.record(maxDurationSec * 1000, { recordingActive }) { bytes, _ -> pcm.write(bytes) }
+                    val count = capture.record(
+                        maxDurationSec * 1000,
+                        { recordingActive },
+                        { bytes, _ -> pcm.write(bytes) },
+                        // Publish the cumulative captured sample count live so the
+                        // UI can render a sample-derived duration while recording.
+                        { cumulative -> _sampleCount.value = cumulative },
+                    )
                     val wav = WavWriter.buildWav(pcm.toByteArray(), pcm.size())
                     session.recordingCompleted(count, wav)
                     count

@@ -100,9 +100,30 @@ PM independently reran client Vitest (339 passed) and the client production buil
 
 Decision: do not merge, do not mark Delivery 1A accepted, and do not begin Delivery 1B. Colleague D receives only `docs/DELIVERY-1A-D-REPAIR-1.md`.
 
+## Delivery 1A Repair 1 (Colleague D, 2026-08-29) — awaiting PM re-review
+
+All six frozen discrepancies were repaired on `codex/review-watch-transport` (commit pushed; see `PROJECT_PROGRESS.md`). Focused diff per item:
+
+1. **On-Watch editable settings**: `RecordingScreen.SettingsField` now opens a Wear dialog with a `BasicTextField` (IME `Done` action); values are committed on confirm. Proven on-device without ADB-pre-seeded prefs: PC IP `192.168.12.142`, port `18099`, and a 64-hex dev token were all typed through the real Wear keyboard and persisted (`watch-ev-*.png` screenshots).
+2. **Live sample-derived duration**: `AudioCapture.record` now invokes `onProgress(cumulativeSamples)` after every read; `RecordingViewModel` publishes it to `_sampleCount`, and the status line renders `Recording <ms> ms` while recording (observed on-device increasing through ~3520 ms during a run that finished at 238,080 samples). Wall-clock time is never used as the source of truth.
+3. **Frozen 64-hex Dev Token**: new `DevTokenValidator` (Watch) and `watch_receiver::config::validate_token` (Windows) both require exactly 64 hexadecimal chars after trimming (32 decoded bytes / 256 bits). Positive and negative tests cover 63/65 chars, non-hex, surrounding whitespace, and valid 64-char tokens on both sides.
+4. **X-Request-Id end to end**: receiver validates `X-Request-Id` as a UUID (missing/invalid -> 400), echoes the same UUID in the 201 JSON, and includes it in the non-secret success log. Watch `TransportClient.verifySuccessResponse` accepts 201 only when the echoed `requestId` equals the sent UUID (mismatch/missing -> failure). Tests for mismatch/missing/invalid headers added.
+5. **Strict RIFF bounds**: `wav::parse` now requires the declared RIFF extent to match the file extent (one valid container-pad byte tolerated) and bounds all chunk walking to the declared extent; a valid `fmt`/`data` beyond a shortened declaration is rejected (test added).
+6. **Toolchain declaration restored**: `client/src-tauri/rust-toolchain.toml` reverted to `channel = "stable-x86_64-pc-windows-msvc"`. Reproducible evidence the baseline works: with `stable-x86_64-pc-windows-msvc` installed via rustup, `cargo --version` resolves 1.98.0 and `cargo check --tests`/`cargo test`/`cargo build --release` all succeed under the baseline declaration (the earlier failure was caused by the MSVC toolchain not being installed yet, not by the declaration).
+
+Fresh verification for Repair 1:
+
+- `watch`: `.\gradlew.bat testDebugUnitTest lintDebug assembleDebug` — BUILD SUCCESSFUL (exit 0), 45 unit tests / 0 failures, lint clean.
+- `client`: `npm test` — 339 passed (exit 0); `npm run build` — exit 0.
+- `client/src-tauri`: `cargo test` — 145 tests, 141 passed / 0 failed / 4 ignored (exit 0); receiver module tests 28 passed.
+- Release checks: `cargo build --release` binary contains none of `watch-receiver`, `SAYIT_WATCH_BIND_IP`, `received_watch.wav`, `X-Request-Id`, `api/watch/audio`; Watch release APK has no `usesCleartextTraffic`, debug APK has it.
+- Debug APK (rebuilt): `watch/app/build/outputs/apk/debug/app-debug.apk`, SHA-256 `831549822A88DCFE2495210E85DCCC8816E18E979A2D0CA8D5CABFF2A7156552` (not committed).
+
+Repair-1 real-device evidence (D evidence): a new speech/ambient recording was captured on the Watch (238,080 samples, 14.88 s) and uploaded with a valid `X-Request-Id`; receiver logged `requestId=bb327d88-96a3-4af5-b700-c7eeeaeee942 bytes=476204 samples=238080 durationMs=14880` and durably saved `received_watch.wav` (SHA-256 `2929585a641a1f6d55d3aa715d8f21d153f67941742c5eb299fa135cd3de02d2`); desktop copy `received_watch_D-repair-voice.wav` for PM playback. PC-side self-tests confirmed 201 echoes the sent UUID and missing/invalid `X-Request-Id` return 400.
+
 ## Next executable step
 
-The user sends `docs/DELIVERY-1A-D-REPAIR-1.md` to colleague D. D repairs only the frozen discrepancies on `codex/review-watch-transport`, pushes the branch, and returns the requested evidence. PM then re-reviews the actual diff and evidence before any Delivery 1A acceptance.
+PM re-reviews the Repair 1 diff and evidence on `codex/review-watch-transport`. Delivery 1A remains unaccepted until PM accepts; Delivery 1B stays locked.
 
 ## Delivery 1A acceptance
 

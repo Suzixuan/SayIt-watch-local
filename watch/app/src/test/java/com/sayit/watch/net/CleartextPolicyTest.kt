@@ -26,7 +26,12 @@ class CleartextPolicyTest {
         assertNull(sender)
         // Even if a client were constructed with cleartext denied, upload must fail closed.
         val denied = TransportClient(cleartextAllowed = false)
-        val result = denied.upload("192.168.1.5", 8080, "t".repeat(32), ByteArray(44))
+        val result = denied.upload(
+            "192.168.1.5",
+            8080,
+            "a1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcdef0",
+            ByteArray(44),
+        )
         assertTrue(result is TransportClient.UploadResult.Failure)
         assertTrue((result as TransportClient.UploadResult.Failure).reason.contains("disabled"))
     }

@@ -27,7 +27,8 @@ class SettingsStore(context: Context) {
     fun isValidDestination(): Boolean =
         DestinationValidator.validate(receiverIp, receiverPort) is DestinationValidator.ValidationResult.Valid
 
-    fun hasToken(): Boolean = devToken.isNotBlank()
+    /** True when the stored token trims to exactly 64 hex characters. */
+    fun hasValidToken(): Boolean = DevTokenValidator.isValid(devToken)
 
     private companion object {
         const val KEY_IP = "receiver_ip"

@@ -3,14 +3,14 @@
 ## Authority and current goal
 
 - Read `HANDOFF.md`, `PROJECT_PROGRESS.md`, and the active delivery task before changing files.
-- Delivery 1A is PM-accepted. The Delivery 1B Provider contract is PM-accepted as MATCH after Z2. The only unlocked slice is the PC-only external WAV ingress in `docs/DELIVERY-1B-Z-EXTERNAL-INGRESS-TASK.md`.
+- Delivery 1A is PM-accepted. The Delivery 1B Provider contract is MATCH after Z2. Z3 is PM NO-GO; the only unlocked slice is the strictly ordered Repair 1 + Watch UI candidate in `docs/DELIVERY-1B-Z3-REPAIR-1.md`.
 - `HANDOVER.md` documents the inherited security-hardened SayIt source. Preserve those fixes.
 - `PROJECT_PROGRESS.md` is the only authoritative progress table for this project.
 
 ## Hard boundaries
 
-- During the external-ingress slice, change only the paths and additive surfaces listed in `docs/DELIVERY-1B-Z-EXTERNAL-INGRESS-TASK.md`. Preserve the existing AudioRelay path, ASR/Provider implementations, History, Paste, AI, Watch app/UI, target tracking, VAD, update, backup, storage-security, release HTTP behavior, and accepted dependency locks.
-- Do not implement Watch UI changes or begin real-device/ten-run closure before PM accepts the PC external-ingress slice.
+- During Z3 Repair 1, change only the paths and surfaces listed in `docs/DELIVERY-1B-Z3-REPAIR-1.md`. Preserve the existing AudioRelay path, ASR/Provider implementations, History, Paste, AI, target tracking, VAD, update, backup, storage-security, release HTTP behavior, and accepted dependency locks.
+- Finish and test Part A Repair before beginning the explicitly authorized Watch UI candidate. Do not begin real-device or ten-run closure before PM accepts both parts.
 - Do not add streaming, WebSockets, Opus, discovery, mDNS, QR codes, formal pairing, background recording, wake words, double-Home behavior, or a phone companion app.
 - HTTP receiver code must be debug-only, bind one explicit RFC1918 LAN IPv4, and fail closed when any required environment variable is missing or invalid.
 - Never commit tokens, `.env` files, Android local paths, keystores, APK/AAB files, device serial numbers, received audio, models, installers, or build caches.

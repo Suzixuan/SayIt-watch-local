@@ -3,14 +3,14 @@
 ## Authority and current goal
 
 - Read `HANDOFF.md`, `PROJECT_PROGRESS.md`, and the active delivery task before changing files.
-- Delivery 1A is PM-accepted. The Delivery 1B Provider contract is MATCH after Z2. Z3 PC-side fixes, responsive width work, and recovered parent manifest are PM-retained; Watch UI candidate.3 is NO-GO. The only unlocked slice is Watch UI Repair 4 in `docs/DELIVERY-1B-Z3-REPAIR-4.md`.
+- Delivery 1A and Delivery 1B stage-7 source/UI gates are PM-accepted. The only unlocked slice is the Galaxy Watch 7 device/ten-run acceptance in `docs/DELIVERY-1B-D-DEVICE-ACCEPTANCE.md`; Delivery 1B is not VERIFIED until that task passes.
 - `HANDOVER.md` documents the inherited security-hardened SayIt source. Preserve those fixes.
 - `PROJECT_PROGRESS.md` is the only authoritative progress table for this project.
 
 ## Hard boundaries
 
-- During Z3 Repair 4, change only the paths and surfaces listed in `docs/DELIVERY-1B-Z3-REPAIR-4.md`. Do not rewrite PM-retained PC admission/ingress or responsive-layout work, and do not modify frozen design/baseline directories. Preserve the existing AudioRelay path, ASR/Provider implementations, History, Paste, AI, target tracking, VAD, update, backup, storage-security, release HTTP behavior, and accepted dependency locks.
-- Fix and test the multi-generation completion gate and final readable Watch UI candidate only. Do not begin real-device or ten-run closure before PM accepts Repair 4.
+- During device acceptance, do not modify product source or frozen design/baseline directories. Preserve the existing AudioRelay path, ASR/Provider implementations, History, Paste, AI, target tracking, VAD, update, backup, storage-security, release HTTP behavior, and accepted dependency locks.
+- Execute only the real Galaxy Watch visual/interaction smoke and ten consecutive Watch-to-Paste runs. Any source defect stops the task and returns to PM; do not repair inline.
 - Do not add streaming, WebSockets, Opus, discovery, mDNS, QR codes, formal pairing, background recording, wake words, double-Home behavior, or a phone companion app.
 - HTTP receiver code must be debug-only, bind one explicit RFC1918 LAN IPv4, and fail closed when any required environment variable is missing or invalid.
 - Never commit tokens, `.env` files, Android local paths, keystores, APK/AAB files, device serial numbers, received audio, models, installers, or build caches.

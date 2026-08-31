@@ -62,7 +62,10 @@ mod tests {
         let block_start = main_src
             .find(start_marker)
             .expect("start marker present");
-        let window = &main_src[block_start.saturating_sub(400)..block_start];
+        // The start call lives inside `.setup()` (after the event sink is
+        // registered), so the enclosing `#[cfg(debug_assertions)]` block may be
+        // well over 400 characters earlier — scan back a generous window.
+        let window = &main_src[block_start.saturating_sub(4000)..block_start];
         assert!(
             window.contains("#[cfg(debug_assertions)]"),
             "watch_receiver::start must be guarded by #[cfg(debug_assertions)]"

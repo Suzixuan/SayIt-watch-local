@@ -253,13 +253,9 @@ fn main() {
     // IPv4 and serves /api/health + /api/watch/audio. Missing or invalid
     // configuration fails closed (receiver does not start). Never starts in
     // release builds. Emits no frontend events and touches no ASR/Provider code.
-    #[cfg(debug_assertions)]
-    {
-        match watch_receiver::start() {
-            Ok(()) => log::info!("Watch receiver startup requested (debug build)"),
-            Err(e) => log::warn!("Watch receiver not started: {}", e),
-        }
-    }
+    // NOTE: started from `.setup()` AFTER `set_event_sink` — the receiver reads
+    // the global EVENT_SINK at construction, so starting it earlier would wire
+    // the no-op sink and silently drop every admission event (bridge_timeout).
 
     let storage = Storage::new(db_path).expect("failed to initialize SQLite storage");
 
@@ -366,9 +362,20 @@ fn main() {
                         // Repair 1: the payload is a serde_json object, so Tauri
                         // delivers a structured object to the WebView — never a
                         // JSON string.
-                        let _ = handle.emit(event, payload);
+                        match handle.emit(event, payload) {
+                            Ok(()) => log::debug!("watch event emitted to webviews: {}", event),
+                            Err(e) => log::error!("watch event emit FAILED: {}: {}", event, e),
+                        }
                     },
                 ));
+                // The receiver must start AFTER the event sink is registered:
+                // `ReceiverServer::start` snapshots the global EVENT_SINK at
+                // construction, so an earlier start wires the no-op sink and
+                // every admission event is silently dropped (bridge_timeout).
+                match watch_receiver::start() {
+                    Ok(()) => log::info!("Watch receiver startup requested (debug build)"),
+                    Err(e) => log::warn!("Watch receiver not started: {}", e),
+                }
             }
             // SayIt's main window and lazy overlay share one WebView2 user-data directory.
             // Per-window browser arguments violate WebView2's environment compatibility

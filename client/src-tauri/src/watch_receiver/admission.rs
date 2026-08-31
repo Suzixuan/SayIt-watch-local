@@ -391,6 +391,12 @@ pub fn watch_admission_resolve(
 ) -> Result<bool, String> {
     #[cfg(debug_assertions)]
     {
+        log::info!(
+            "watch admission resolve invoked by frontend: request={} accepted={} reason={:?}",
+            request_id,
+            accepted,
+            reason
+        );
         Ok(AdmissionGate::shared().resolve_admission(&request_id, accepted, reason))
     }
     #[cfg(not(debug_assertions))]
@@ -430,7 +436,12 @@ pub fn watch_run_aborted(request_id: String, reason: String) -> Result<bool, Str
 pub fn watch_gate_state() -> Result<GateStateSnapshot, String> {
     #[cfg(debug_assertions)]
     {
-        Ok(AdmissionGate::shared().snapshot())
+        let snapshot = AdmissionGate::shared().snapshot();
+        // Diagnostic: proves the WebView frontend actually invokes Tauri commands
+        // (initWatchIngress boot reconciliation). If this never appears in the
+        // log, the frontend JS is not reaching the IPC bridge at all.
+        log::info!("watch gate state queried by frontend: {}", snapshot.state);
+        Ok(snapshot)
     }
     #[cfg(not(debug_assertions))]
     {

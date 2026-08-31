@@ -31,7 +31,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
@@ -170,8 +169,10 @@ fun RecordingScreen(
 
     MaterialTheme {
         Box(Modifier.fillMaxSize()) {
-            TimeText()
-
+            // Z3 Repair 4 必修 2: no global TimeText here — every non-overlay
+            // screen renders its own TimeText (Config/Ready/Recording), and the
+            // fully opaque overlay backgrounds hide everything underneath,
+            // matching the candidate.4 previews element for element.
             when (ui.screen) {
                 WatchUiState.Screen.CONFIG -> ConfigScreen(viewModel, settings)
                 WatchUiState.Screen.READY -> ReadyScreen(
@@ -226,6 +227,9 @@ private fun ConfigScreen(viewModel: RecordingViewModel, settings: SettingsStore)
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
+        // Runtime TimeText, as in the candidate.4 preview (Z3 Repair 4 必修 2).
+        TimeText()
+        Spacer(Modifier.height(4.dp))
         Text(
             text = stringResource(R.string.screen_config_title),
             fontSize = 15.sp,
@@ -330,6 +334,9 @@ private fun ReadyScreen(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
+        // Runtime TimeText, as in the candidate.4 preview (Z3 Repair 4 必修 2).
+        TimeText()
+        Spacer(Modifier.height(4.dp))
         Text(
             text = stringResource(R.string.screen_ready_title),
             fontSize = 15.sp,
@@ -365,14 +372,16 @@ private fun ReadyScreen(
             modifier = Modifier.clickable { viewModel.openConfig() },
         )
 
+        // Z3 Repair 4 必修 2: one obvious, clickable, ≥48 dp "Pending upload —
+        // Retry" chip replaces the former badge + duplicate Retry chip pair.
+        // The retained WAV and the explicit discard protection are unchanged.
         if (ui.showsPendingUploadBadge) {
             Spacer(Modifier.height(6.dp))
-            PendingUploadBadge(onClick = { viewModel.retryUpload() })
-            Spacer(Modifier.height(6.dp))
             WideActionChip(
-                label = stringResource(R.string.pending_retry_action),
+                label = stringResource(R.string.pending_upload_retry),
                 onClick = { viewModel.retryUpload() },
             )
+            Spacer(Modifier.height(6.dp))
         }
 
         Spacer(Modifier.height(10.dp))
@@ -400,26 +409,6 @@ private fun ReadyScreen(
         Spacer(Modifier.height(8.dp))
         StatusLine(state, sampleCount, lastError)
     }
-
-    // A pending WAV from a failed upload: explicit Retry is one tap away.
-    if (ui.showsPendingUploadBadge) {
-        LaunchedEffect(Unit) { /* badge only; retry lives in the failure overlay */ }
-    }
-}
-
-@Composable
-private fun PendingUploadBadge(onClick: () -> Unit) {
-    Text(
-        text = stringResource(R.string.pending_upload_badge),
-        fontSize = 11.sp,
-        color = Color.Black,
-        fontWeight = FontWeight.Bold,
-        modifier = Modifier
-            .background(MaterialTheme.colors.secondary, RoundedCornerShape(10.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 6.dp),
-        textAlign = TextAlign.Center,
-    )
 }
 
 // ─── Screen 3: Recording (sample-derived duration, Stop, Cancel) ───
@@ -431,10 +420,14 @@ private fun RecordingActiveScreen(viewModel: RecordingViewModel) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = WatchUiMetrics.ScreenSidePaddingDp),
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = WatchUiMetrics.ScreenSidePaddingDp, vertical = 28.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
+        // Runtime TimeText, as in the candidate.4 preview (Z3 Repair 4 必修 2).
+        TimeText()
+        Spacer(Modifier.height(4.dp))
         Text(
             text = stringResource(R.string.recording_title),
             fontSize = 14.sp,
@@ -623,20 +616,27 @@ private fun DiscardPromptDialog(viewModel: RecordingViewModel) {
 }
 
 // ─── Shared overlay scaffold (circular safe area) ───
-
+// Z3 Repair 4 必修 2: the overlay uses a FULLY OPAQUE background plus a solid
+// content panel, so no underlying Ready text, controls, or TimeText ever shows
+// through — no overlapping glyphs, on any screen size. The code and the
+// candidate.4 previews agree: while an overlay is up, the base screen is
+// invisible.
 @Composable
 private fun OverlayScaffold(content: @Composable () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.75f))
+            .background(MaterialTheme.colors.background)
             .padding(horizontal = WatchUiMetrics.ScreenSidePaddingDp),
         contentAlignment = Alignment.Center,
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colors.surface, RoundedCornerShape(24.dp))
+                .padding(horizontal = 16.dp, vertical = 18.dp),
         ) {
             content()
         }

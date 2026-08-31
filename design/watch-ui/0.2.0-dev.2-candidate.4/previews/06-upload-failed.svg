@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="480" viewBox="0 0 480 480">
+  <defs><clipPath id="round"><circle cx="240" cy="240" r="240"/></clipPath></defs>
+  <g clip-path="url(#round)">
+    <!-- candidate.4 必修 2: fully opaque overlay + solid panel; the "Upload
+         failed" panel is fully readable with no underlying Ready text. -->
+    <rect width="480" height="480" fill="#101418"/>
+    <rect x="40" y="112" width="400" height="240" rx="24" fill="#1c242e"/>
+    <text x="240" y="160" fill="#ff8a80" font-family="monospace" font-size="22" font-weight="bold" text-anchor="middle">Upload failed</text>
+    <text x="240" y="196" fill="#ff8a80" font-family="monospace" font-size="14" text-anchor="middle">HTTP 409 (PC busy)</text>
+    <text x="240" y="232" fill="#9fb3c8" font-family="monospace" font-size="13" text-anchor="middle">The recording is kept.</text>
+    <text x="240" y="252" fill="#9fb3c8" font-family="monospace" font-size="13" text-anchor="middle">Retry resends it — no re-recording.</text>
+    <rect x="52" y="280" width="172" height="52" rx="26" fill="#1d3a5f" stroke="#3d6a9e" stroke-width="2"/>
+    <text x="138" y="312" fill="#d7e3f0" font-family="monospace" font-size="14" text-anchor="middle">Retry</text>
+    <rect x="256" y="280" width="172" height="52" rx="26" fill="#333c44" stroke="#5a6a78" stroke-width="2"/>
+    <text x="342" y="312" fill="#d7e3f0" font-family="monospace" font-size="14" text-anchor="middle">Later</text>
+  </g>
+  <circle cx="240" cy="240" r="238" fill="none" stroke="#2a3440" stroke-width="2"/>
+  <!-- candidate.4: element-for-element render of the Compose screens at the nominal 1dp=1px reference scale -->
+</svg>

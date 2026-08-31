@@ -332,3 +332,33 @@ Delivery 1B may modify the external-audio ingress only after the Delivery 1A acc
 - Rust limitation: fresh Cargo still fails at the external `transcribe-cpp-sys` MSBuild cache (`FTK1011`); PC source was unchanged.
 - Decision: **NO-GO**. `settledGeneration` is not reset per begin, so only the first successful recording generation can settle. Cancel and settle remain separate multi-Atomic checks rather than one state transition, and Session mutation remains on the I/O context. Candidate.3 also fails full-size visual QA: clipped Pending status, missing Recording TimeText, and severe text collisions on translucent overlays.
 - Next task: `docs/DELIVERY-1B-Z3-REPAIR-4.md`. Preserve all accepted PC/responsive/baseline work; repair only the multi-generation coordinator and candidate.4 readability. Real-device and ten-run stages remain locked.
+
+## Delivery 1B Z3 Repair 4 (Colleague Z, 2026-08-30) — awaiting PM re-review
+
+Base: PM task commit `3de3aaa04bd1e5d0dbade3c53a6effabe0d62bde`; branch `codex/review-watch-pipeline`. Repaired exactly the two frozen blockers; PC Rust/TS, dependencies, lockfile, MainActivity, and every frozen design/baseline directory are untouched.
+
+### 必修 1 — completion gate supports consecutive generations, atomic with Cancel
+
+- `RecordingRequestLatch` rewritten as ONE atomic state machine (`AtomicReference<Phase>`: `Idle -> Active(gen) -> Settled | Cancelled`). `begin`, `cancel`, `settle` all CAS the same state — Cancel and completion are a single atomic transition; the old three-Atomic `settledGeneration` bug (never reset per begin, so gen2 could never settle) is gone.
+- Every `begin()` creates a fresh independently-settlable generation; a late older generation can never claim the newer one (settle matches phase AND generation id).
+- I/O only produces a `RecordingOutcome` (Completed/Failed) inside `Dispatchers.IO`; the session, UI, vibration, and upload writes happen on the main coroutine only after the `settle` gate — no cross-thread session mutation.
+- New shared `RecordingOutcomeCoordinator.applyOutcome(gen, outcome, session)` is the single application path used by both the ViewModel and the coordinator tests.
+- Tests (13 in `RecordingRequestLatchTest`) drive `applyOutcome`, not bare Atomics: gen1→gen2 consecutive settle; gen1 late can't occupy gen2; cancel-vs-completion single terminal state (cancel wins → READY, no WAV/Failure/upload); two consecutive rounds each complete+upload exactly once; real cross-thread cancel visibility and concurrent settle exactly-once; generation-zero rejected.
+
+### 必修 2 — candidate.4 readable at full size
+
+- `OverlayScaffold` now uses a FULLY OPAQUE background plus a solid rounded content panel: Uploading / Upload failed / Uploaded never show underlying Ready text, controls, or TimeText — no overlapping glyphs; "Upload failed" fully readable.
+- The former `Pending upload` badge + duplicate `Retry upload` chip are merged into one obvious, clickable, ≥48 dp `Pending upload — Retry` chip; the retained WAV and explicit discard protection are unchanged.
+- Every non-overlay screen (Config/Ready/Recording) renders its own runtime `TimeText` (the root-Box global was removed); overlays hide everything with the opaque panel — previews and runtime agree element for element.
+- Ready (incl. Pending) and Recording scroll with the same first-screen semantics as the previews; Record / Retry / status stay fully inside the round safe area (geometry-checked).
+- New immutable freeze `design/watch-ui/0.2.0-dev.2-candidate.4/` (README marks candidate.3 rejected and records parent/differences/inherited locks/non-photographic deviation/status; seven full-size 480x480 previews; SHA256SUMS). candidate.1/2/3 and baseline-recovery.1 untouched.
+
+### Verification (commands, exit codes)
+
+- `git diff --check` — clean (exit 0).
+- `watch`: `gradlew testDebugUnitTest --rerun-tasks` — 75 tests / 0 failed (exit 0); `lintDebug assembleDebug assembleRelease` — all successful (exit 0). Debug APK `watch/app/build/outputs/apk/debug/app-debug.apk` SHA-256 `8F58722B018890AEF3BD0DF428AC31AB6F793952DC4515586D655062E21CB8EF` (not committed; release APK produced unsigned).
+- `client`: `npm test -- --run` — 31 files / 370 passed (exit 0); `npm run build` (exit 0).
+- `client/src-tauri`: `cargo test` — 162 tests, 158 passed / 0 failed / 4 ignored (exit 0); `cargo build --release` (exit 0); release-marker scan — all eleven markers absent (five Delivery 1A markers + five `watch_*` commands + `AdmissionGate`).
+- candidate.4 preview geometry self-check: all 7 previews pass (no clipped text, no control outside the round safe area); overlay previews verified to contain no underlying Ready text; SHA256SUMS re-verified (all OK).
+
+Remaining risks: previews remain hand-authored layout renders (non-photographic, as declared in README); real-device visual/interaction closure and the ten-run acceptance stay locked; PM Cargo re-run may still hit the external `transcribe-cpp-sys` FTK1011 cache issue on the PM host.

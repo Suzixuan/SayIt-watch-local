@@ -29,7 +29,9 @@
     <string name="recording_stop_glyph">■</string>
     <string name="pending_retry_action">Retry upload</string>
     <string name="ready_open_config">Settings</string>
-    <string name="pending_upload_badge">Pending upload</string>
+    <!-- Z3 Repair 4 必修 2: one merged, obvious Pending-upload action chip
+         (≥48 dp) replaces the former badge + duplicate Retry chip pair. -->
+    <string name="pending_upload_retry">Pending upload — Retry</string>
 
     <!-- Recording -->
     <string name="recording_stop">Stop</string>

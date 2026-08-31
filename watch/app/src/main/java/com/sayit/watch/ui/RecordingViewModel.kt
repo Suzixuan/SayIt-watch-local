@@ -25,54 +25,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Cancel latch and SINGLE completion coordinator for the recording I/O
- * coroutine (Z3 Repair 2 必修 1, hardened by Repair 3 必修 1). All state is
- * atomic: the UI thread and the `Dispatchers.IO` capture coroutine see the same
- * values without a data race.
- *
- * `settle` is the only way a generation may report ANY outcome — success or
- * exception. It returns true exactly once per generation (exactly-once
- * semantics), and never for a cancelled or superseded generation. The ViewModel
- * gates both its success and its catch branch on `settle`, so a Cancel makes
- * every late completion — normal return or exception — fail closed.
- */
-class RecordingRequestLatch {
-    private val generation = java.util.concurrent.atomic.AtomicInteger(0)
-    private val cancelled = java.util.concurrent.atomic.AtomicBoolean(false)
-    private val settledGeneration = java.util.concurrent.atomic.AtomicInteger(-1)
-
-    /** Starts a new recording generation and returns its ID. */
-    fun begin(): Int {
-        cancelled.set(false)
-        return generation.incrementAndGet()
-    }
-
-    /** Cancels the current generation: any late completion becomes stale. */
-    fun cancel() {
-        cancelled.set(true)
-    }
-
-    /** True only while `generationId` is the live, non-cancelled generation. */
-    fun isCurrent(generationId: Int): Boolean =
-        generationId != 0 &&
-            generationId == generation.get() &&
-            !cancelled.get()
-
-    /**
-     * The completion decision, atomically: claims the single right to report
-     * `generationId`'s outcome. Returns true exactly when the generation is the
-     * live, non-cancelled one AND nothing has settled it yet; false for a
-     * cancelled, superseded, or already-settled generation (exactly-once).
-     */
-    fun settle(generationId: Int): Boolean {
-        if (generationId == 0) return false // generation 0 = "no recording begun yet"
-        if (cancelled.get()) return false
-        if (generationId != generation.get()) return false
-        return settledGeneration.compareAndSet(-1, generationId)
-    }
-}
-
-/**
  * Pure UI state machine for the 0.2.0-dev.2 Wear OS screens
  * (docs/WATCH-UI-Z-HANDOFF.md). No Android dependencies — unit-testable on the
  * JVM. The ViewModel maps recording/transport callbacks onto its events.
@@ -81,6 +33,9 @@ class RecordingRequestLatch {
  * (UPLOADING / UPLOAD_FAILED / UPLOADED) and a pending-upload latch that
  * survives a failed upload and blocks a new recording until the user explicitly
  * discards the retained WAV (never silently overwritten).
+ *
+ * The multi-generation Cancel/completion coordinator lives in
+ * RecordingRequestLatch.kt (Z3 Repair 4 必修 1).
  */
 data class WatchUiState(
     val screen: Screen,
@@ -391,7 +346,9 @@ class RecordingViewModel(
         uiEvent(WatchUiStateMachine::recordingStarted)
         vibrate(RecordingSession.State.RECORDING)
         viewModelScope.launch {
-            val samples = withContext(Dispatchers.IO) {
+            // I/O produces ONLY an outcome — it never touches the RecordingSession,
+            // the UI, vibration, or upload from the IO dispatcher.
+            val outcome = withContext(Dispatchers.IO) {
                 val pcm = java.io.ByteArrayOutputStream()
                 try {
                     val count = capture.record(
@@ -403,30 +360,29 @@ class RecordingViewModel(
                         { cumulative -> _sampleCount.value = cumulative },
                     )
                     val wav = WavWriter.buildWav(pcm.toByteArray(), pcm.size())
-                    // Z3 Repair 3 必修 1: BOTH late outcomes are gated by the single
-                    // settle coordinator — a Cancel (or a superseded/already-settled
-                    // generation) drops the success silently: session untouched, no
-                    // auto-upload, no stop vibration.
-                    if (requestLatch.settle(generation)) {
-                        session.recordingCompleted(count, wav)
-                        count
-                    } else {
-                        -1
-                    }
+                    RecordingOutcome.Completed(count, wav)
                 } catch (e: Exception) {
-                    // A late exception is equally fail-closed: without the settle
-                    // claim it must NOT overwrite the recovered READY with FAILURE.
-                    if (requestLatch.settle(generation)) {
-                        session.recordingFailed(e.message ?: "recording failed")
-                    }
-                    -1
+                    RecordingOutcome.Failed(e.message ?: "recording failed")
                 }
             }
-            syncState()
-            if (samples >= 0) {
-                vibrate(RecordingSession.State.RECORDED)
-                // Stop always auto-uploads the completed WAV (no separate Send page).
-                send()
+            // Back on the main coroutine: the atomic settle gate decides whether
+            // this generation may write its outcome. A Cancel (or a superseded /
+            // already-settled generation) drops it silently: session untouched,
+            // no auto-upload, no stop vibration.
+            if (requestLatch.settle(generation)) {
+                when (outcome) {
+                    is RecordingOutcome.Completed -> {
+                        session.recordingCompleted(outcome.samples, outcome.wav)
+                        syncState()
+                        vibrate(RecordingSession.State.RECORDED)
+                        // Stop always auto-uploads the completed WAV (no separate Send page).
+                        send()
+                    }
+                    is RecordingOutcome.Failed -> {
+                        session.recordingFailed(outcome.reason)
+                        syncState()
+                    }
+                }
             }
         }
     }

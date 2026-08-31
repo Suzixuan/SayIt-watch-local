@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="480" viewBox="0 0 480 480">
+  <defs><clipPath id="round"><circle cx="240" cy="240" r="240"/></clipPath></defs>
+  <g clip-path="url(#round)">
+    <!-- candidate.4 必修 2: fully opaque overlay + solid panel — no underlying
+         Ready text or TimeText shows through. -->
+    <rect width="480" height="480" fill="#101418"/>
+    <rect x="40" y="156" width="400" height="168" rx="24" fill="#1c242e"/>
+    <text x="240" y="212" fill="#3ddc84" font-family="monospace" font-size="22" font-weight="bold" text-anchor="middle">Uploaded to PC</text>
+    <text x="240" y="256" fill="#9fb3c8" font-family="monospace" font-size="14" text-anchor="middle">The PC received the recording.</text>
+  </g>
+  <circle cx="240" cy="240" r="238" fill="none" stroke="#2a3440" stroke-width="2"/>
+  <!-- candidate.4: element-for-element render of the Compose screens at the nominal 1dp=1px reference scale -->
+</svg>

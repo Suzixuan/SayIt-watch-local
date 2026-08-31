@@ -72,3 +72,4 @@ client/src-tauri/sayit-settings-*.json
 # ── Logs & runtime ──
 *.log
 runtime/
+watch/.kotlin/

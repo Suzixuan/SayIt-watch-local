@@ -7,6 +7,10 @@
     <string name="screen_ready_title">SayIt</string>
     <string name="recording_title">录音中</string>
 
+    <!-- Watch dial (card) presentation -->
+    <string name="dial_title_ready">MIC READY</string>
+    <string name="dial_title_recording">RECORDING</string>
+
     <!-- Developer configuration -->
     <string name="config_pc_ip">电脑地址</string>
     <string name="config_port">Port</string>

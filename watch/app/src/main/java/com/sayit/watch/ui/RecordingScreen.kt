@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -23,6 +24,12 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -39,6 +46,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
@@ -56,6 +64,8 @@ import com.sayit.watch.recording.WavWriter
 import com.sayit.watch.settings.DestinationValidator
 import com.sayit.watch.settings.DevTokenValidator
 import com.sayit.watch.settings.SettingsStore
+import kotlin.math.cos
+import kotlin.math.sin
 
 /** 0.2.0-dev.3 Watch presentation layer; recording and transport logic stay untouched. */
 private val SayItBlue = Color(0xFF1976E9)
@@ -181,40 +191,101 @@ private fun ConfigScreen(viewModel: RecordingViewModel, settings: SettingsStore)
 }
 
 @Composable
-private fun ReadyScreen(viewModel: RecordingViewModel, ui: WatchUiState, hasPermission: Boolean, onRequestPermission: () -> Unit) = BoxWithConstraints(Modifier.fillMaxSize()) {
-    val micSize = if (maxHeight < 230.dp) 88.dp else 96.dp
-    Column(Modifier.fillMaxSize().padding(horizontal = WatchUiMetrics.ScreenSidePaddingDp, vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.SpaceEvenly) {
-        Text(stringResource(R.string.screen_ready_title), fontSize = 22.sp, fontWeight = FontWeight.Bold)
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceEvenly, modifier = Modifier.fillMaxWidth()) {
-            val health = when (ui.transportAvailable) { true -> stringResource(R.string.health_available); false -> stringResource(R.string.health_unavailable); null -> stringResource(R.string.health_unchecked) }
-            Text(health, fontSize = 11.sp, color = if (ui.transportAvailable == false) RecordingRed else MutedText, modifier = Modifier.weight(1f))
-            SmallIconAction(stringResource(R.string.health_check_action), IconType.REFRESH) { viewModel.checkHealth() }
-            SmallIconAction(stringResource(R.string.ready_open_config), IconType.SETTINGS) { viewModel.openConfig() }
-        }
-        if (!hasPermission) PillAction(stringResource(R.string.ready_grant_mic), onRequestPermission, Modifier.fillMaxWidth()) else {
-            Box(Modifier.size(micSize).background(SayItBlue, CircleShape).clickable { viewModel.recordButtonPressed() }, contentAlignment = Alignment.Center) {
-                Canvas(Modifier.size(micSize * .48f)) { drawIcon(IconType.MICROPHONE, Color.White) }
+private fun ReadyScreen(viewModel: RecordingViewModel, ui: WatchUiState, hasPermission: Boolean, onRequestPermission: () -> Unit) {
+    WatchDial {
+        if (!hasPermission) {
+            PillAction(stringResource(R.string.ready_grant_mic), onRequestPermission, Modifier.fillMaxWidth().padding(horizontal = 40.dp))
+        } else {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                // Title: small, gray, slightly higher.
+                Text(stringResource(R.string.dial_title_ready), fontSize = 9.sp, color = DialMuted, fontWeight = FontWeight.SemiBold, letterSpacing = 1.5.sp, modifier = Modifier.align(Alignment.Center).offset(y = -56.dp))
+                // Line microphone: largest element, dead center.
+                Box(Modifier.size(84.dp).align(Alignment.Center).clickable { viewModel.recordButtonPressed() }, contentAlignment = Alignment.Center) {
+                    Canvas(Modifier.size(72.dp)) { drawIcon(IconType.MICROPHONE, DialIcon) }
+                }
             }
-            Text(stringResource(R.string.ready_record), fontSize = 12.sp, color = MutedText)
         }
     }
 }
 
 @Composable
-private fun RecordingActiveScreen(viewModel: RecordingViewModel) = BoxWithConstraints(Modifier.fillMaxSize()) {
-    val compact = maxHeight < 230.dp
-    // Subscribe to the StateFlow so each captured-sample update recomposes the timer.
+private fun RecordingActiveScreen(viewModel: RecordingViewModel) {
     val sampleCount by viewModel.sampleCount.collectAsState()
-    Column(Modifier.fillMaxSize().padding(horizontal = WatchUiMetrics.ScreenSidePaddingDp, vertical = 18.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.SpaceEvenly) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(9.dp).background(RecordingRed, CircleShape)); Spacer(Modifier.width(7.dp))
-            Text(stringResource(R.string.recording_title), fontSize = 15.sp, color = RecordingRed, fontWeight = FontWeight.SemiBold)
+    WatchDial {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(stringResource(R.string.dial_title_recording), fontSize = 9.sp, color = DialMuted, fontWeight = FontWeight.SemiBold, letterSpacing = 1.5.sp, modifier = Modifier.align(Alignment.Center).offset(y = -56.dp))
+            RecordingWaveform(SayItBlue, Modifier.size(width = 156.dp, height = 46.dp).align(Alignment.Center).clickable { viewModel.stopRecording() })
+            Text(formatRecordingDurationFromSamples(sampleCount), fontSize = 20.sp, color = DialIcon, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Center).offset(y = 52.dp))
+            Text(stringResource(R.string.recording_cancel_hint), fontSize = 8.sp, color = DialMuted, modifier = Modifier.align(Alignment.Center).offset(y = 84.dp).clickable { viewModel.cancelRecording() })
         }
-        Text(formatRecordingDurationFromSamples(sampleCount), fontSize = if (compact) 38.sp else 44.sp, fontWeight = FontWeight.Bold)
-        PillAction(stringResource(R.string.recording_stop), { viewModel.stopRecording() }, Modifier.fillMaxWidth(), background = RecordingRed)
-        Row(Modifier.height(WatchUiMetrics.RowMinHeightDp).clickable { viewModel.cancelRecording() }, verticalAlignment = Alignment.CenterVertically) {
-            Canvas(Modifier.size(18.dp)) { drawIcon(IconType.CLOSE, MutedText) }; Spacer(Modifier.width(6.dp))
-            Text(stringResource(R.string.recording_cancel_hint), fontSize = 12.sp, color = MutedText)
+    }
+}
+
+// ─── Watch dial (card) presentation ───────────────────────────────────────────
+
+private val DialFace = Color(0xFFF6F7F9)
+private val DialTick = Color(0xFF1C1E22)
+private val DialIcon = Color(0xFF1C1E22)
+private val DialMuted = Color(0xFF9AA3AE)
+
+@Composable
+private fun WatchDial(content: @Composable BoxScope.() -> Unit) {
+    // Galaxy Watch 7 (SM-L310): 480×480 px @ density 340 → dial ≈ 226dp, radius ≈ 113dp.
+    // The dial face fills the round screen; ticks sit just inside the bezel.
+    Box(Modifier.fillMaxSize()) {
+        Canvas(Modifier.fillMaxSize()) {
+            val center = Offset(size.width / 2f, size.height / 2f)
+            val radius = minOf(size.width, size.height) / 2f
+            drawCircle(DialFace, radius, center)
+            drawDialTicks(center, radius)
+        }
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { content() }
+    }
+}
+
+private fun DrawScope.drawDialTicks(center: Offset, radius: Float) {
+    // 60 uniform minute ticks in gray, hugging the bezel; 4 longer/thicker blue
+    // marks at 12/3/6/9 o'clock.
+    val outer = radius * 0.99f
+    val minuteInner = radius * 0.95f
+    val majorInner = radius * 0.89f
+    repeat(60) { i ->
+        val angle = i * 6.0 * Math.PI / 180.0
+        val dir = Offset(cos(angle).toFloat(), sin(angle).toFloat())
+        val major = i % 15 == 0
+        val end = center + dir * (if (major) majorInner else minuteInner)
+        drawLine(
+            color = if (major) SayItBlue else DialMuted,
+            start = center + dir * outer,
+            end = end,
+            strokeWidth = if (major) radius * 0.030f else radius * 0.008f,
+            cap = StrokeCap.Round,
+        )
+    }
+}
+
+@Composable
+private fun RecordingWaveform(color: Color, modifier: Modifier = Modifier) {
+    val transition = rememberInfiniteTransition()
+    val phase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = (2.0 * Math.PI).toFloat(),
+        animationSpec = infiniteRepeatable(tween(1200, easing = LinearEasing)),
+    )
+    Canvas(modifier) {
+        // 11 symmetric bars: center tallest, tapering to the sides, thin round caps.
+        val barCount = 11
+        val maxAmp = size.height * 0.42f
+        val midY = size.height / 2f
+        val gap = size.width / barCount
+        val barWidth = gap * 0.30f
+        val phaseRad = phase.toDouble() * Math.PI
+        for (i in 0 until barCount) {
+            val envelope = (1.0 - kotlin.math.abs(i - (barCount - 1) / 2.0) / ((barCount - 1) / 2.0)).toFloat()
+            val wave = (sin(phaseRad + i.toDouble() * 0.7) * 0.5 + 0.5).toFloat()
+            val amp = maxAmp * (0.18f + 0.82f * envelope) * (0.55f + 0.45f * wave)
+            val x = gap * i + gap / 2f
+            drawLine(color, Offset(x, midY - amp), Offset(x, midY + amp), barWidth, StrokeCap.Round)
         }
     }
 }

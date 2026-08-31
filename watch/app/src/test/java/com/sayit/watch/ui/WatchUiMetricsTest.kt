@@ -22,8 +22,9 @@ class WatchUiMetricsTest {
     }
 
     @Test
-    fun `main circular action keeps the Wear default 52 dp size`() {
-        assertEquals(52.dp, WatchUiMetrics.MainActionSizeDp)
+    fun `primary microphone stays within the approved 88 to 96 dp range`() {
+        assertTrue(WatchUiMetrics.MainActionSizeDp >= 88.dp)
+        assertTrue(WatchUiMetrics.MainActionSizeDp <= 96.dp)
     }
 
     @Test
@@ -32,7 +33,7 @@ class WatchUiMetricsTest {
     }
 
     @Test
-    fun `the retry and later weights plus the gap always fit one row`() {
+    fun `action spacing stays compact on the round screen`() {
         assertTrue(WatchUiMetrics.HalfChipWeight > 0f)
         assertTrue(WatchUiMetrics.HalfChipGapDp > 0.dp)
         // Two equally weighted chips always share the row regardless of the
@@ -45,4 +46,19 @@ class WatchUiMetricsTest {
     fun `screen side padding keeps primary controls inside a round safe area`() {
         assertTrue(WatchUiMetrics.ScreenSidePaddingDp >= 16.dp)
     }
+
+    @Test
+    fun `recording duration uses minute second display without a raw ms label`() {
+        assertEquals("00:00", formatRecordingDuration(0))
+        assertEquals("00:01", formatRecordingDuration(1_999))
+        assertEquals("01:05", formatRecordingDuration(65_000))
+    }
+
+    @Test
+    fun `recording duration derives from captured samples using wav rounding`() {
+        assertEquals("00:00", formatRecordingDurationFromSamples(0))
+        assertEquals("00:01", formatRecordingDurationFromSamples(16_000))
+        assertEquals("00:01", formatRecordingDurationFromSamples(29_472))
+    }
+
 }

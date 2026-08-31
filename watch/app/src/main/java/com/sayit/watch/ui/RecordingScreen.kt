@@ -1,9 +1,11 @@
 package com.sayit.watch.ui
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -31,6 +34,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
@@ -40,170 +49,113 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
-import androidx.wear.compose.material.Button
-import androidx.wear.compose.material.ButtonDefaults
 import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.material.Text
-import androidx.wear.compose.material.TimeText
 import com.sayit.watch.R
-import com.sayit.watch.recording.RecordingSession
+import com.sayit.watch.recording.WavWriter
 import com.sayit.watch.settings.DestinationValidator
 import com.sayit.watch.settings.DevTokenValidator
 import com.sayit.watch.settings.SettingsStore
 
-/**
- * 0.2.0-dev.2 Wear OS UI (docs/WATCH-UI-Z-HANDOFF.md).
- *
- * Three screens plus inline upload states — no separate Send page, no carousel
- * dots, no transcription-success wording. "Uploaded to PC" is transport-only.
- * This is a Wear OS app on a 480x480 round display: primary controls stay
- * inside the circular safe area (centered column, generous horizontal padding).
- */
+/** 0.2.0-dev.3 Watch presentation layer; recording and transport logic stay untouched. */
+private val SayItBlue = Color(0xFF1976E9)
+private val RecordingRed = Color(0xFFE14B52)
+private val FieldSurface = Color(0xFF252A34)
+private val PanelSurface = Color(0xFF20252E)
+private val MutedText = Color(0xFFB5BFCC)
 
-/**
- * Shared control metrics for the frozen candidate previews (Z3 Repair 2 必修 3,
- * made responsive by Repair 3 必修 2). Physical pixels are NOT logical dp: the
- * Galaxy Watch 7's 480×480 panel maps to a smaller dp width, so widths are
- * expressed as FRACTIONS of the parent constraint (applied via `fillMaxWidth`
- * / `weight`), never as fixed dp. `WatchUiMetricsTest` pins these invariants,
- * and the candidate.3 previews use the same fractions on their 480 px canvas.
- */
+/** Responsive metrics: fixed dp is only used for touch targets and icon sizes. */
 object WatchUiMetrics {
-    /** Wear Chip default height — wide pill buttons (Save & Apply, Retry, …). */
     val WideChipHeightDp = 52.dp
-
-    /** Minimum clickable height for config rows and the token Show/Hide action. */
     val RowMinHeightDp = 48.dp
-
-    /** Circular primary action (Record / Stop) — Wear Button default size. */
-    val MainActionSizeDp = 52.dp
-
-    /** Horizontal safe-area padding applied to every screen. */
-    val ScreenSidePaddingDp = 24.dp
-
-    /** Wide pill width: the full padded parent width (responsive, any density). */
+    val MainActionSizeDp = 92.dp
+    val ScreenSidePaddingDp = 22.dp
     const val WideChipWidthFraction = 1f
-
-    /** Each half of the Retry/Later pair (two weighted chips + the gap). */
     const val HalfChipWeight = 1f
-
-    /** Spacer between the two half chips, in dp. */
-    val HalfChipGapDp = 12.dp
+    val HalfChipGapDp = 10.dp
 }
 
-/** Masked token display: first 4 + dots + last 4 (e.g. A1B2••••••••7890). */
-fun maskToken(token: String): String {
-    if (token.length <= 8) return "••••••••"
-    return token.take(4) + "••••••••" + token.takeLast(4)
+/** Duration is derived by the ViewModel from captured audio data, never wall time. */
+fun formatRecordingDuration(durationMs: Long): String {
+    val seconds = durationMs.coerceAtLeast(0L) / 1_000L
+    return "%02d:%02d".format(seconds / 60L, seconds % 60L)
 }
 
-/** Wide pill action matching the frozen previews (Repair 2 必修 3). */
+/** Keeps the visible timer byte-for-byte aligned with the recorder's WAV duration rule. */
+fun formatRecordingDurationFromSamples(sampleCount: Int): String =
+    formatRecordingDuration(WavWriter.durationMs(sampleCount))
+
+fun maskToken(token: String): String =
+    if (token.length <= 8) "••••••••" else token.take(4) + "••••••••" + token.takeLast(4)
+
 @Composable
-private fun WideActionChip(label: String, onClick: () -> Unit, enabled: Boolean = true) {
-    androidx.wear.compose.material.Chip(
-        onClick = onClick,
-        label = {
-            Text(
-                text = label,
-                fontSize = 15.sp,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        },
-        modifier = Modifier
-            .fillMaxWidth(WatchUiMetrics.WideChipWidthFraction)
-            .height(WatchUiMetrics.WideChipHeightDp),
-        enabled = enabled,
-    )
-}
-
-/** Two side-by-side pills (Retry / Later) matching the frozen previews. */
-@Composable
-private fun SplitActionChips(primaryLabel: String, secondaryLabel: String, onPrimary: () -> Unit, onSecondary: () -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(WatchUiMetrics.HalfChipGapDp),
+private fun PillAction(label: String, onClick: () -> Unit, modifier: Modifier = Modifier, background: Color = SayItBlue, enabled: Boolean = true) {
+    Box(
+        modifier = modifier.height(WatchUiMetrics.WideChipHeightDp)
+            .background(if (enabled) background else FieldSurface, RoundedCornerShape(28.dp))
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center,
     ) {
-        androidx.wear.compose.material.Chip(
-            onClick = onPrimary,
-            label = {
-                Text(
-                    text = primaryLabel,
-                    fontSize = 14.sp,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            },
-            modifier = Modifier
-                .weight(WatchUiMetrics.HalfChipWeight)
-                .height(WatchUiMetrics.WideChipHeightDp),
-        )
-        androidx.wear.compose.material.Chip(
-            onClick = onSecondary,
-            label = {
-                Text(
-                    text = secondaryLabel,
-                    fontSize = 14.sp,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            },
-            modifier = Modifier
-                .weight(WatchUiMetrics.HalfChipWeight)
-                .height(WatchUiMetrics.WideChipHeightDp),
-        )
+        Text(label, color = if (enabled) Color.White else MutedText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+            textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp))
     }
 }
 
 @Composable
-fun RecordingScreen(
-    viewModel: RecordingViewModel,
-    settings: SettingsStore,
-    hasPermission: Boolean,
-    onRequestPermission: () -> Unit,
-) {
-    val ui by viewModel.ui.collectAsState()
-    val state by viewModel.state.collectAsState()
-    val sampleCount by viewModel.sampleCount.collectAsState()
-    val lastError by viewModel.lastError.collectAsState()
+private fun SmallIconAction(label: String, icon: IconType, onClick: () -> Unit) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.size(width = 58.dp, height = 48.dp).clickable(onClick = onClick)) {
+        Canvas(Modifier.size(24.dp)) { drawIcon(icon, SayItBlue) }
+        Text(label, fontSize = 10.sp, color = MutedText)
+    }
+}
 
-    MaterialTheme {
-        Box(Modifier.fillMaxSize()) {
-            // Z3 Repair 4 必修 2: no global TimeText here — every non-overlay
-            // screen renders its own TimeText (Config/Ready/Recording), and the
-            // fully opaque overlay backgrounds hide everything underneath,
-            // matching the candidate.4 previews element for element.
-            when (ui.screen) {
-                WatchUiState.Screen.CONFIG -> ConfigScreen(viewModel, settings)
-                WatchUiState.Screen.READY -> ReadyScreen(
-                    viewModel = viewModel,
-                    settings = settings,
-                    ui = ui,
-                    hasPermission = hasPermission,
-                    onRequestPermission = onRequestPermission,
-                    state = state,
-                    sampleCount = sampleCount,
-                    lastError = lastError,
-                )
-                WatchUiState.Screen.RECORDING -> RecordingActiveScreen(viewModel)
-            }
+private enum class IconType { MICROPHONE, REFRESH, SETTINGS, CLOSE }
 
-            // Inline upload overlays sit above the screen content.
-            when (ui.overlay) {
-                WatchUiState.Overlay.UPLOADING -> UploadingOverlay()
-                WatchUiState.Overlay.UPLOAD_FAILED -> UploadFailedOverlay(viewModel, ui)
-                WatchUiState.Overlay.UPLOADED -> UploadedOverlay(viewModel)
-                WatchUiState.Overlay.NONE -> {}
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawIcon(type: IconType, color: Color) {
+    val w = size.width
+    val h = size.height
+    val stroke = Stroke(width = w * .10f, cap = StrokeCap.Round)
+    when (type) {
+        IconType.MICROPHONE -> {
+            drawRoundRect(color, Offset(w * .34f, h * .08f), Size(w * .32f, h * .48f), CornerRadius(w * .16f, w * .16f))
+            drawArc(color, 0f, 180f, false, Offset(w * .20f, h * .28f), Size(w * .60f, h * .48f), style = stroke)
+            drawLine(color, Offset(w * .50f, h * .76f), Offset(w * .50f, h * .94f), stroke.width, StrokeCap.Round)
+            drawLine(color, Offset(w * .30f, h * .94f), Offset(w * .70f, h * .94f), stroke.width, StrokeCap.Round)
+        }
+        IconType.REFRESH -> {
+            drawArc(color, 35f, 285f, false, Offset(w * .12f, h * .12f), Size(w * .76f, h * .76f), style = stroke)
+            drawLine(color, Offset(w * .80f, h * .12f), Offset(w * .88f, h * .36f), stroke.width, StrokeCap.Round)
+            drawLine(color, Offset(w * .80f, h * .12f), Offset(w * .58f, h * .17f), stroke.width, StrokeCap.Round)
+        }
+        IconType.SETTINGS -> {
+            drawCircle(color, w * .17f, Offset(w * .50f, h * .50f), style = stroke)
+            repeat(4) { index ->
+                val x = if (index % 2 == 0) w * .50f else if (index == 1) w * .84f else w * .16f
+                val y = if (index % 2 == 1) h * .50f else if (index == 0) h * .16f else h * .84f
+                drawLine(color, Offset(w * .50f, h * .50f), Offset(x, y), stroke.width, StrokeCap.Round)
             }
-
-            if (ui.discardPrompt) {
-                DiscardPromptDialog(viewModel)
-            }
+            drawCircle(color, w * .09f, Offset(w * .50f, h * .50f))
+        }
+        IconType.CLOSE -> {
+            drawLine(color, Offset(w * .25f, h * .25f), Offset(w * .75f, h * .75f), stroke.width, StrokeCap.Round)
+            drawLine(color, Offset(w * .75f, h * .25f), Offset(w * .25f, h * .75f), stroke.width, StrokeCap.Round)
         }
     }
 }
 
-// ─── Screen 1: developer configuration ───
+@Composable
+fun RecordingScreen(viewModel: RecordingViewModel, settings: SettingsStore, hasPermission: Boolean, onRequestPermission: () -> Unit) {
+    val ui by viewModel.ui.collectAsState()
+    MaterialTheme {
+        Box(Modifier.fillMaxSize().background(Color.Black)) {
+            when (ui.screen) {
+                WatchUiState.Screen.CONFIG -> ConfigScreen(viewModel, settings)
+                WatchUiState.Screen.READY -> ReadyScreen(viewModel, ui, hasPermission, onRequestPermission)
+                WatchUiState.Screen.RECORDING -> RecordingActiveScreen(viewModel)
+            }
+        }
+    }
+}
 
 @Composable
 private fun ConfigScreen(viewModel: RecordingViewModel, settings: SettingsStore) {
@@ -211,566 +163,91 @@ private fun ConfigScreen(viewModel: RecordingViewModel, settings: SettingsStore)
     var portText by remember { mutableStateOf(settings.receiverPort) }
     var tokenText by remember { mutableStateOf(settings.devToken) }
     var tokenRevealed by remember { mutableStateOf(false) }
-
     var editingToken by remember { mutableStateOf(false) }
-
-    val dest = DestinationValidator.validate(ipText, portText)
-    val destOk = dest is DestinationValidator.ValidationResult.Valid
-    val tokenOk = DevTokenValidator.isValid(tokenText)
-    val canApply = destOk && tokenOk
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = WatchUiMetrics.ScreenSidePaddingDp, vertical = 28.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        // Runtime TimeText, as in the candidate.4 preview (Z3 Repair 4 必修 2).
-        TimeText()
-        Spacer(Modifier.height(4.dp))
-        Text(
-            text = stringResource(R.string.screen_config_title),
-            fontSize = 15.sp,
-            fontWeight = FontWeight.Bold,
-        )
-        Spacer(Modifier.height(8.dp))
-
-        SettingsField(stringResource(R.string.config_pc_ip), ipText) { ipText = it }
-        SettingsField(stringResource(R.string.config_port), portText) { portText = it }
-
-        // Token row: masked by default with an explicit temporary reveal action.
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text(
-                    stringResource(R.string.config_dev_token),
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colors.onSurfaceVariant,
-                )
-                Text(
-                    text = if (tokenText.isEmpty()) {
-                        stringResource(R.string.config_tap_to_edit)
-                    } else if (tokenRevealed) {
-                        tokenText
-                    } else {
-                        maskToken(tokenText)
-                    },
-                    fontSize = 12.sp,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { editingToken = true },
-                    textAlign = TextAlign.Center,
-                )
-            }
-            Box(
-                modifier = Modifier
-                    .padding(start = 8.dp)
-                    .height(WatchUiMetrics.RowMinHeightDp)
-                    .clickable { tokenRevealed = !tokenRevealed },
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = if (tokenRevealed) {
-                        stringResource(R.string.config_hide_token)
-                    } else {
-                        stringResource(R.string.config_show_token)
-                    },
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colors.primary,
-                )
-            }
-        }
-
-        Spacer(Modifier.height(10.dp))
-        WideActionChip(
-            label = stringResource(R.string.config_save_apply),
-            onClick = { viewModel.applySettings(ipText, portText, tokenText) },
-            enabled = canApply,
-        )
-        if (!canApply) {
-            Text(
-                text = stringResource(R.string.config_validation_hint),
-                fontSize = 10.sp,
-                color = MaterialTheme.colors.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-        Spacer(Modifier.height(6.dp))
-    }
-
-    if (editingToken) {
-        WearTextInputDialog(
-            label = stringResource(R.string.config_dev_token),
-            initialValue = tokenText,
-            onConfirm = { newValue -> tokenText = newValue; editingToken = false },
-            onDismiss = { editingToken = false },
-        )
-    }
-}
-
-// ─── Screen 2: Ready (health check + Record + Pending upload badge) ───
-
-@Composable
-private fun ReadyScreen(
-    viewModel: RecordingViewModel,
-    settings: SettingsStore,
-    ui: WatchUiState,
-    hasPermission: Boolean,
-    onRequestPermission: () -> Unit,
-    state: RecordingSession.State,
-    sampleCount: Int,
-    lastError: String?,
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = WatchUiMetrics.ScreenSidePaddingDp, vertical = 28.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        // Runtime TimeText, as in the candidate.4 preview (Z3 Repair 4 必修 2).
-        TimeText()
-        Spacer(Modifier.height(4.dp))
-        Text(
-            text = stringResource(R.string.screen_ready_title),
-            fontSize = 15.sp,
-            fontWeight = FontWeight.Bold,
-        )
-        Spacer(Modifier.height(6.dp))
-
-        val transportText = when (ui.transportAvailable) {
-            null -> stringResource(R.string.health_unchecked)
-            true -> stringResource(R.string.health_available)
-            false -> stringResource(R.string.health_unavailable)
-        }
-        Text(
-            text = transportText,
-            fontSize = 11.sp,
-            color = if (ui.transportAvailable == true) {
-                MaterialTheme.colors.primary
-            } else {
-                MaterialTheme.colors.onSurfaceVariant
-            },
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        WideActionChip(
-            label = stringResource(R.string.health_check_action),
-            onClick = { viewModel.checkHealth() },
-        )
-        Spacer(Modifier.height(4.dp))
-        Text(
-            text = stringResource(R.string.ready_open_config),
-            fontSize = 11.sp,
-            color = MaterialTheme.colors.primary,
-            modifier = Modifier.clickable { viewModel.openConfig() },
-        )
-
-        // Z3 Repair 4 必修 2: one obvious, clickable, ≥48 dp "Pending upload —
-        // Retry" chip replaces the former badge + duplicate Retry chip pair.
-        // The retained WAV and the explicit discard protection are unchanged.
-        if (ui.showsPendingUploadBadge) {
-            Spacer(Modifier.height(6.dp))
-            WideActionChip(
-                label = stringResource(R.string.pending_upload_retry),
-                onClick = { viewModel.retryUpload() },
-            )
-            Spacer(Modifier.height(6.dp))
-        }
-
-        Spacer(Modifier.height(10.dp))
-        if (!hasPermission) {
-            WideActionChip(
-                label = stringResource(R.string.ready_grant_mic),
-                onClick = onRequestPermission,
-            )
-        } else {
-            Button(
-                onClick = { viewModel.recordButtonPressed() },
-                colors = ButtonDefaults.buttonColors(),
-                modifier = Modifier.size(WatchUiMetrics.MainActionSizeDp),
-            ) {
-                Text(stringResource(R.string.ready_record_glyph), fontSize = 18.sp)
-            }
-            Spacer(Modifier.height(2.dp))
-            Text(
-                text = stringResource(R.string.ready_record),
-                fontSize = 11.sp,
-                color = MaterialTheme.colors.onSurfaceVariant,
-            )
-        }
-
-        Spacer(Modifier.height(8.dp))
-        StatusLine(state, sampleCount, lastError)
-    }
-}
-
-// ─── Screen 3: Recording (sample-derived duration, Stop, Cancel) ───
-
-@Composable
-private fun RecordingActiveScreen(viewModel: RecordingViewModel) {
-    val sampleCount by viewModel.sampleCount.collectAsState()
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = WatchUiMetrics.ScreenSidePaddingDp, vertical = 28.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        // Runtime TimeText, as in the candidate.4 preview (Z3 Repair 4 必修 2).
-        TimeText()
-        Spacer(Modifier.height(4.dp))
-        Text(
-            text = stringResource(R.string.recording_title),
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Bold,
-        )
-        Spacer(Modifier.height(4.dp))
-        // Sample-derived duration — never a wall clock.
-        Text(text = "${viewModel.durationMs} ms", fontSize = 22.sp)
-        Text(
-            text = stringResource(R.string.recording_sample_count, sampleCount),
-            fontSize = 11.sp,
-            color = MaterialTheme.colors.onSurfaceVariant,
-        )
+    val canApply = DestinationValidator.validate(ipText, portText) is DestinationValidator.ValidationResult.Valid && DevTokenValidator.isValid(tokenText)
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = WatchUiMetrics.ScreenSidePaddingDp, vertical = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(stringResource(R.string.screen_config_title), fontSize = 18.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(14.dp))
-        Button(
-            onClick = { viewModel.stopRecording() },
-            colors = ButtonDefaults.buttonColors(),
-            modifier = Modifier.size(WatchUiMetrics.MainActionSizeDp),
-        ) {
-            Text(stringResource(R.string.recording_stop_glyph), fontSize = 16.sp)
+        SettingsField(stringResource(R.string.config_pc_ip), ipText) { ipText = it }
+        Spacer(Modifier.height(8.dp))
+        SettingsField(stringResource(R.string.config_port), portText) { portText = it }
+        Spacer(Modifier.height(8.dp))
+        FieldCard(stringResource(R.string.config_dev_token), if (tokenText.isEmpty()) stringResource(R.string.config_tap_to_edit) else if (tokenRevealed) tokenText else maskToken(tokenText), if (tokenRevealed) stringResource(R.string.config_hide_token) else stringResource(R.string.config_show_token), { editingToken = true }) { tokenRevealed = !tokenRevealed }
+        Spacer(Modifier.height(14.dp))
+        PillAction(stringResource(R.string.config_save_apply), { viewModel.applySettings(ipText, portText, tokenText) }, Modifier.fillMaxWidth(), enabled = canApply)
+        if (!canApply) { Spacer(Modifier.height(8.dp)); Text(stringResource(R.string.config_validation_hint), fontSize = 10.sp, color = MutedText, textAlign = TextAlign.Center) }
+    }
+    if (editingToken) WearTextInputDialog(stringResource(R.string.config_dev_token), tokenText, { tokenText = it; editingToken = false }, { editingToken = false })
+}
+
+@Composable
+private fun ReadyScreen(viewModel: RecordingViewModel, ui: WatchUiState, hasPermission: Boolean, onRequestPermission: () -> Unit) = BoxWithConstraints(Modifier.fillMaxSize()) {
+    val micSize = if (maxHeight < 230.dp) 88.dp else 96.dp
+    Column(Modifier.fillMaxSize().padding(horizontal = WatchUiMetrics.ScreenSidePaddingDp, vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.SpaceEvenly) {
+        Text(stringResource(R.string.screen_ready_title), fontSize = 22.sp, fontWeight = FontWeight.Bold)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceEvenly, modifier = Modifier.fillMaxWidth()) {
+            val health = when (ui.transportAvailable) { true -> stringResource(R.string.health_available); false -> stringResource(R.string.health_unavailable); null -> stringResource(R.string.health_unchecked) }
+            Text(health, fontSize = 11.sp, color = if (ui.transportAvailable == false) RecordingRed else MutedText, modifier = Modifier.weight(1f))
+            SmallIconAction(stringResource(R.string.health_check_action), IconType.REFRESH) { viewModel.checkHealth() }
+            SmallIconAction(stringResource(R.string.ready_open_config), IconType.SETTINGS) { viewModel.openConfig() }
         }
-        Text(
-            text = stringResource(R.string.recording_stop),
-            fontSize = 11.sp,
-            color = MaterialTheme.colors.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(8.dp))
-        Text(
-            text = stringResource(R.string.recording_cancel_hint),
-            fontSize = 10.sp,
-            color = MaterialTheme.colors.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(WatchUiMetrics.RowMinHeightDp)
-                .clickable { viewModel.cancelRecording() },
-        )
-    }
-}
-
-// ─── Inline overlay: Uploading (keep the screen on; no user action needed) ───
-
-@Composable
-private fun UploadingOverlay() {
-    OverlayScaffold {
-        Text(
-            text = stringResource(R.string.uploading_title),
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Bold,
-        )
-        Spacer(Modifier.height(8.dp))
-        Text(
-            text = stringResource(R.string.uploading_body),
-            fontSize = 11.sp,
-            color = MaterialTheme.colors.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth(),
-        )
-    }
-}
-
-// ─── Inline overlay: Upload failed (retain WAV; Retry / Later) ───
-
-@Composable
-private fun UploadFailedOverlay(viewModel: RecordingViewModel, ui: WatchUiState) {
-    OverlayScaffold {
-        Text(
-            text = stringResource(R.string.upload_failed_title),
-            fontSize = 15.sp,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colors.error,
-        )
-        Spacer(Modifier.height(4.dp))
-        Text(
-            text = ui.failureReason ?: stringResource(R.string.upload_failed_generic),
-            fontSize = 10.sp,
-            color = MaterialTheme.colors.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Text(
-            text = stringResource(R.string.upload_failed_retained),
-            fontSize = 10.sp,
-            color = MaterialTheme.colors.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Spacer(Modifier.height(10.dp))
-        SplitActionChips(
-            primaryLabel = stringResource(R.string.upload_failed_retry),
-            secondaryLabel = stringResource(R.string.upload_failed_later),
-            onPrimary = { viewModel.retryUpload() },
-            onSecondary = { viewModel.laterPressed() },
-        )
-    }
-}
-
-// ─── Inline overlay: Uploaded to PC (transport-only, brief, auto-dismiss) ───
-
-@Composable
-private fun UploadedOverlay(viewModel: RecordingViewModel) {
-    LaunchedEffect(Unit) {
-        kotlinx.coroutines.delay(RecordingViewModel.UPLOADED_BRIEF_MS)
-        viewModel.uploadedBriefDismissed()
-    }
-    OverlayScaffold {
-        Text(
-            text = stringResource(R.string.uploaded_title),
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Bold,
-        )
-        Spacer(Modifier.height(6.dp))
-        Text(
-            text = stringResource(R.string.uploaded_body),
-            fontSize = 10.sp,
-            color = MaterialTheme.colors.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth(),
-        )
-    }
-}
-
-// ─── Dialog: explicit discard decision before a new recording ───
-
-@Composable
-private fun DiscardPromptDialog(viewModel: RecordingViewModel) {
-    Dialog(onDismissRequest = { viewModel.discardPromptDismissed() }) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp)
-                .background(MaterialTheme.colors.surface, RoundedCornerShape(12.dp))
-                .padding(12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text(
-                text = stringResource(R.string.discard_prompt_title),
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center,
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = stringResource(R.string.discard_prompt_body),
-                fontSize = 11.sp,
-                color = MaterialTheme.colors.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(10.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(WatchUiMetrics.HalfChipGapDp),
-            ) {
-                androidx.wear.compose.material.Chip(
-                    onClick = { viewModel.discardPromptDismissed() },
-                    label = {
-                        Text(
-                            text = stringResource(R.string.discard_keep),
-                            fontSize = 13.sp,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    },
-                    modifier = Modifier
-                        .weight(WatchUiMetrics.HalfChipWeight)
-                        .height(WatchUiMetrics.WideChipHeightDp),
-                )
-                androidx.wear.compose.material.Chip(
-                    onClick = { viewModel.discardConfirmed() },
-                    label = {
-                        Text(
-                            text = stringResource(R.string.discard_confirm),
-                            fontSize = 13.sp,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    },
-                    modifier = Modifier
-                        .weight(WatchUiMetrics.HalfChipWeight)
-                        .height(WatchUiMetrics.WideChipHeightDp),
-                )
+        if (!hasPermission) PillAction(stringResource(R.string.ready_grant_mic), onRequestPermission, Modifier.fillMaxWidth()) else {
+            Box(Modifier.size(micSize).background(SayItBlue, CircleShape).clickable { viewModel.recordButtonPressed() }, contentAlignment = Alignment.Center) {
+                Canvas(Modifier.size(micSize * .48f)) { drawIcon(IconType.MICROPHONE, Color.White) }
             }
+            Text(stringResource(R.string.ready_record), fontSize = 12.sp, color = MutedText)
         }
     }
 }
 
-// ─── Shared overlay scaffold (circular safe area) ───
-// Z3 Repair 4 必修 2: the overlay uses a FULLY OPAQUE background plus a solid
-// content panel, so no underlying Ready text, controls, or TimeText ever shows
-// through — no overlapping glyphs, on any screen size. The code and the
-// candidate.4 previews agree: while an overlay is up, the base screen is
-// invisible.
 @Composable
-private fun OverlayScaffold(content: @Composable () -> Unit) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colors.background)
-            .padding(horizontal = WatchUiMetrics.ScreenSidePaddingDp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(MaterialTheme.colors.surface, RoundedCornerShape(24.dp))
-                .padding(horizontal = 16.dp, vertical = 18.dp),
-        ) {
-            content()
+private fun RecordingActiveScreen(viewModel: RecordingViewModel) = BoxWithConstraints(Modifier.fillMaxSize()) {
+    val compact = maxHeight < 230.dp
+    // Subscribe to the StateFlow so each captured-sample update recomposes the timer.
+    val sampleCount by viewModel.sampleCount.collectAsState()
+    Column(Modifier.fillMaxSize().padding(horizontal = WatchUiMetrics.ScreenSidePaddingDp, vertical = 18.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.SpaceEvenly) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(9.dp).background(RecordingRed, CircleShape)); Spacer(Modifier.width(7.dp))
+            Text(stringResource(R.string.recording_title), fontSize = 15.sp, color = RecordingRed, fontWeight = FontWeight.SemiBold)
+        }
+        Text(formatRecordingDurationFromSamples(sampleCount), fontSize = if (compact) 38.sp else 44.sp, fontWeight = FontWeight.Bold)
+        PillAction(stringResource(R.string.recording_stop), { viewModel.stopRecording() }, Modifier.fillMaxWidth(), background = RecordingRed)
+        Row(Modifier.height(WatchUiMetrics.RowMinHeightDp).clickable { viewModel.cancelRecording() }, verticalAlignment = Alignment.CenterVertically) {
+            Canvas(Modifier.size(18.dp)) { drawIcon(IconType.CLOSE, MutedText) }; Spacer(Modifier.width(6.dp))
+            Text(stringResource(R.string.recording_cancel_hint), fontSize = 12.sp, color = MutedText)
         }
     }
 }
-
-// ─── Status line (kept from 0.2.0-dev.1, transport-only wording) ───
-
-@Composable
-private fun StatusLine(state: RecordingSession.State, sampleCount: Int, lastError: String?) {
-    val text = when (state) {
-        RecordingSession.State.IDLE -> stringResource(R.string.status_idle)
-        RecordingSession.State.READY -> stringResource(R.string.status_ready)
-        RecordingSession.State.RECORDING -> stringResource(R.string.status_recording)
-        RecordingSession.State.RECORDED -> stringResource(R.string.status_recorded, sampleCount)
-        RecordingSession.State.UPLOADING -> stringResource(R.string.uploading_title)
-        RecordingSession.State.TRANSPORT_SUCCESS -> stringResource(R.string.uploaded_title)
-        RecordingSession.State.FAILURE -> lastError ?: stringResource(R.string.status_failure)
-    }
-    Text(
-        text = text,
-        fontSize = 11.sp,
-        textAlign = TextAlign.Center,
-        modifier = Modifier.fillMaxWidth(),
-    )
-}
-
-// ─── Settings field + Wear keyboard dialog (kept from 0.2.0-dev.1) ───
 
 @Composable
 private fun SettingsField(label: String, value: String, onChange: (String) -> Unit) {
     var editing by remember { mutableStateOf(false) }
+    FieldCard(label, if (value.isEmpty()) stringResource(R.string.config_tap_to_edit) else value, onClick = { editing = true })
+    if (editing) WearTextInputDialog(label, value, { onChange(it); editing = false }, { editing = false })
+}
 
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .padding(vertical = 2.dp)
-            .heightIn(min = WatchUiMetrics.RowMinHeightDp)
-            .clickable { editing = true },
-    ) {
-        Text(label, fontSize = 11.sp, color = MaterialTheme.colors.onSurfaceVariant)
-        Text(
-            text = if (value.isEmpty()) stringResource(R.string.config_tap_to_edit) else value,
-            fontSize = 12.sp,
-            modifier = Modifier.fillMaxWidth(),
-            textAlign = TextAlign.Center,
-        )
-    }
-
-    if (editing) {
-        WearTextInputDialog(
-            label = label,
-            initialValue = value,
-            onConfirm = { newValue -> onChange(newValue); editing = false },
-            onDismiss = { editing = false },
-        )
+@Composable
+private fun FieldCard(label: String, value: String, trailing: String? = null, onClick: () -> Unit, onTrailingClick: (() -> Unit)? = null) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 58.dp).background(FieldSurface, RoundedCornerShape(14.dp)).clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) { Text(label, fontSize = 10.sp, color = MutedText); Text(value, fontSize = 13.sp, maxLines = 1) }
+        if (trailing != null && onTrailingClick != null) Text(trailing, fontSize = 11.sp, color = SayItBlue, modifier = Modifier.padding(start = 8.dp).clickable(onClick = onTrailingClick))
     }
 }
 
 @Composable
-private fun WearTextInputDialog(
-    label: String,
-    initialValue: String,
-    onConfirm: (String) -> Unit,
-    onDismiss: () -> Unit,
-) {
+private fun WearTextInputDialog(label: String, initialValue: String, onConfirm: (String) -> Unit, onDismiss: () -> Unit) {
     var text by remember { mutableStateOf(initialValue) }
     val focusRequester = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
-
     Dialog(onDismissRequest = onDismiss) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text(label, fontSize = 13.sp, color = MaterialTheme.colors.onSurfaceVariant)
-            Spacer(Modifier.height(6.dp))
-            BasicTextField(
-                value = text,
-                onValueChange = { text = it },
-                textStyle = TextStyle(
-                    fontSize = 14.sp,
-                    textAlign = TextAlign.Center,
-                    color = MaterialTheme.colors.onSurface,
-                ),
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(
-                    onDone = { keyboard?.hide(); onConfirm(text) },
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .focusRequester(focusRequester),
-            )
+        Column(Modifier.fillMaxWidth().background(PanelSurface, RoundedCornerShape(18.dp)).padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(label, fontSize = 13.sp, color = MutedText); Spacer(Modifier.height(8.dp))
+            BasicTextField(value = text, onValueChange = { text = it }, singleLine = true, textStyle = TextStyle(fontSize = 14.sp, textAlign = TextAlign.Center, color = Color.White), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { keyboard?.hide(); onConfirm(text) }), modifier = Modifier.fillMaxWidth().background(FieldSurface, RoundedCornerShape(10.dp)).padding(10.dp).focusRequester(focusRequester))
+            Spacer(Modifier.height(12.dp))
+            PillAction(stringResource(R.string.action_ok), { keyboard?.hide(); onConfirm(text) }, Modifier.fillMaxWidth())
             Spacer(Modifier.height(8.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(WatchUiMetrics.HalfChipGapDp),
-            ) {
-                androidx.wear.compose.material.Chip(
-                    onClick = { keyboard?.hide(); onDismiss() },
-                    label = {
-                        Text(
-                            text = stringResource(R.string.action_cancel),
-                            fontSize = 13.sp,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    },
-                    modifier = Modifier
-                        .weight(WatchUiMetrics.HalfChipWeight)
-                        .height(WatchUiMetrics.WideChipHeightDp),
-                )
-                androidx.wear.compose.material.Chip(
-                    onClick = { keyboard?.hide(); onConfirm(text) },
-                    label = {
-                        Text(
-                            text = stringResource(R.string.action_ok),
-                            fontSize = 13.sp,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    },
-                    modifier = Modifier
-                        .weight(WatchUiMetrics.HalfChipWeight)
-                        .height(WatchUiMetrics.WideChipHeightDp),
-                )
-            }
+            PillAction(stringResource(R.string.action_cancel), { keyboard?.hide(); onDismiss() }, Modifier.fillMaxWidth(), background = FieldSurface)
         }
     }
-    LaunchedEffect(Unit) {
-        focusRequester.requestFocus()
-        keyboard?.show()
-    }
+    LaunchedEffect(Unit) { focusRequester.requestFocus(); keyboard?.show() }
 }

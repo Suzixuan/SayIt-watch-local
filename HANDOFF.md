@@ -384,3 +384,19 @@ Verified ready on device:
 Blocker (PC product runtime defect):
 - Receiver emits `watch://admission-request` via `app_handle.emit`; the frontend `initWatchIngress` listener (`listen('watch://admission-request')`, registered unconditionally in `RecorderOrchestrator.init()` via `App.tsx` `useEffect` → `initRecorder()`) never receives it within the 5 s admission window → `bridge_timeout` → 409. The frontend renders and the dist bundle contains the admission code; the call chain is unconditional and unprotected. Tauri event delivery itself is the suspect (event name contains `://`, emit from a background receiver thread, or WebView event-channel timing) — requires PM/dev localization. PM's Z2/Z3 evidence came from an isolated harness, never from a full real SayIt run.
 - Per the task hard boundary ("if a source change is required, stop and report only"), no product source was modified. Delivery 1B remains NOT VERIFIED; the ten-run acceptance and real-device closure stay locked.
+
+## Delivery 1B dev.3 minimal Watch UI (D, 2026-08-31) — per DELIVERY-1B-D-WATCH-UI-MINIMAL-HANDOFF.md
+
+Completed from the intentionally-dirty working tree on `codex/review-watch-pipeline` (baseline `178ab81e5da735d2284205f6ce4ca7e0a5819c05`); no reset/clean/re-generation. The pre-existing dev.3 minimal implementation (three screens only: Config/Ready/Recording, silent single upload) was reviewed and completed with the missing **Config startup rule**.
+
+- Startup rule: a valid saved IP/port/token starts directly on Ready; first install or missing/invalid configuration starts on Config. Implemented in `WatchUiStateMachine.startupWith(configValid)` + ViewModel constructor init block (no MainActivity change — outside allowed scope).
+- Config: only IP/Port/Token/Save & Apply; valid save → Ready immediately. Ready keeps a small Settings entry; health-check/upload failure never jumps to Config (silent, returns to Ready with `transportAvailable=false`).
+- Silent upload: Stop → one whole-WAV upload, visible screen returns to Ready immediately; Record is a no-op while uploading; success or failure clears the WAV/session silently (no panel, no vibration, no retention) and restores recordability. Only start/stop haptics.
+- Screens: Ready = large blue Mic; Recording = real-time sample-derived `mm:ss`, red Stop pill, compact Cancel; no `●/■` debug buttons, no upload/success/failure/pending/retry pages.
+
+Verification (commands, exit codes):
+- `gradlew testDebugUnitTest --rerun-tasks` — 75 tests / 0 failed (exit 0); added 3 startup-rule tests (valid→Ready, invalid/missing→Config, idempotent).
+- `lintDebug assembleDebug assembleRelease` — all successful (exit 0). Debug APK `watch/app/build/outputs/apk/debug/app-debug.apk` SHA-256 `C0F3E1FDB59C4F9CB33B5BFAFF7C6705A066BBF454B448B00B06C11D111541AA` (versionCode 3 / 0.2.0-dev.3, not committed).
+- `git diff --check` clean; candidate.2 SHA256SUMS recomputed and verified.
+- Real-device screenshots (Galaxy Watch 7 SM-L310, Android 16/API 36): Config (fresh install, missing config), Ready (large blue Mic), Recording (live `mm:ss`, red Stop, Cancel) — session paths `C:\Users\suzix\toolchain\dev3-config.png`, `dev3-ready.png`, `dev3-recording.png`; OCR-verified with no `●/■` buttons and no upload/success/failure/pending/retry screens. PC `bridge_timeout` is intentionally left to a later independent task per the handoff; not re-attempted here.
+- Allowed-scope check: only `RecordingScreen.kt`, `RecordingViewModel.kt`, `strings.xml`, directly-corresponding tests, `build.gradle.kts` (versionCode 3), candidate.1/2 design dirs, and this doc updated; TransportClient/Receiver/PC bridge/ASR/Provider/History/Paste untouched; the previously committed NOT-VERIFIED report is untouched.

@@ -17,7 +17,6 @@ import com.sayit.watch.recording.WavWriter
 import com.sayit.watch.settings.DestinationValidator
 import com.sayit.watch.settings.SettingsStore
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -25,51 +24,39 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Pure UI state machine for the 0.2.0-dev.2 Wear OS screens
+ * Pure UI state machine for the 0.2.0-dev.3 minimal Watch screens
  * (docs/WATCH-UI-Z-HANDOFF.md). No Android dependencies — unit-testable on the
  * JVM. The ViewModel maps recording/transport callbacks onto its events.
  *
- * Screens: CONFIG -> READY -> RECORDING, with inline overlays
- * (UPLOADING / UPLOAD_FAILED / UPLOADED) and a pending-upload latch that
- * survives a failed upload and blocks a new recording until the user explicitly
- * discards the retained WAV (never silently overwritten).
+ * Screens: CONFIG -> READY -> RECORDING. Uploading remains an internal busy
+ * latch only: it returns visually to Ready, blocks another recording, and is
+ * cleared silently after either HTTP result.
  *
  * The multi-generation Cancel/completion coordinator lives in
  * RecordingRequestLatch.kt (Z3 Repair 4 必修 1).
  */
 data class WatchUiState(
     val screen: Screen,
-    val overlay: Overlay,
-    /** A completed WAV is retained and still needs an upload attempt. */
-    val pendingUpload: Boolean,
     /** Null until the first health check; true only when /api/health answered. */
     val transportAvailable: Boolean?,
-    val failureReason: String?,
-    /** Set while the user must decide what happens to a retained WAV. */
-    val discardPrompt: Boolean,
+    /** Internal only: no visible upload state is rendered while this is true. */
+    val isUploading: Boolean,
 ) {
     enum class Screen { CONFIG, READY, RECORDING }
-    enum class Overlay { NONE, UPLOADING, UPLOAD_FAILED, UPLOADED }
 
     val busy: Boolean
-        get() = screen == Screen.RECORDING || overlay == Overlay.UPLOADING
+        get() = screen == Screen.RECORDING || isUploading
 
     /** MainActivity maps this to WindowManager FLAG_KEEP_SCREEN_ON. */
     val keepScreenOn: Boolean get() = busy
-
-    val showsPendingUploadBadge: Boolean
-        get() = pendingUpload && overlay == Overlay.NONE && screen == Screen.READY
 }
 
 class WatchUiStateMachine(
     initial: WatchUiState =
         WatchUiState(
             screen = WatchUiState.Screen.CONFIG,
-            overlay = WatchUiState.Overlay.NONE,
-            pendingUpload = false,
             transportAvailable = null,
-            failureReason = null,
-            discardPrompt = false,
+            isUploading = false,
         ),
 ) {
     var state: WatchUiState = initial
@@ -79,15 +66,29 @@ class WatchUiStateMachine(
         this.state = state
     }
 
+    /**
+     * Startup decision (dev.3 Config rule): a valid saved destination+token
+     * starts directly on Ready; missing/invalid configuration starts on Config.
+     * Idempotent — later calls do not move a RECORDING screen.
+     */
+    fun startupWith(configValid: Boolean) {
+        if (state.screen == WatchUiState.Screen.CONFIG && !state.isUploading) {
+            if (configValid) {
+                set(state.copy(screen = WatchUiState.Screen.READY))
+            }
+            // invalid/missing -> stay CONFIG
+        }
+    }
+
     /** Save & Apply on the config screen: valid destination -> READY. */
     fun settingsApplied() {
         if (state.screen == WatchUiState.Screen.CONFIG) {
-            set(state.copy(screen = WatchUiState.Screen.READY, discardPrompt = false))
+            set(state.copy(screen = WatchUiState.Screen.READY))
         }
     }
 
     fun backToConfig() {
-        if (state.screen != WatchUiState.Screen.RECORDING && state.overlay == WatchUiState.Overlay.NONE) {
+        if (state.screen != WatchUiState.Screen.RECORDING && !state.isUploading) {
             set(state.copy(screen = WatchUiState.Screen.CONFIG))
         }
     }
@@ -97,103 +98,43 @@ class WatchUiStateMachine(
         set(state.copy(transportAvailable = available))
     }
 
-    /** True when pressing Record must first ask the user to discard the WAV. */
-    fun recordNeedsDiscardConfirmation(): Boolean =
-        state.screen == WatchUiState.Screen.READY &&
-            state.overlay == WatchUiState.Overlay.NONE &&
-            state.pendingUpload
-
-    fun showDiscardPrompt() {
-        if (recordNeedsDiscardConfirmation()) set(state.copy(discardPrompt = true))
-    }
-
-    fun dismissDiscardPrompt() {
-        set(state.copy(discardPrompt = false))
-    }
-
-    /** Explicit user decision: drop the retained WAV, then recording may start. */
-    fun pendingDiscarded() {
-        set(state.copy(pendingUpload = false, discardPrompt = false, failureReason = null))
-    }
+    /** Ready is visible during a silent upload, but cannot start another capture. */
+    fun canStartRecording(): Boolean = state.screen == WatchUiState.Screen.READY && !state.isUploading
 
     fun recordingStarted() {
-        if (state.screen == WatchUiState.Screen.READY && !state.pendingUpload && state.overlay == WatchUiState.Overlay.NONE) {
-            set(state.copy(screen = WatchUiState.Screen.RECORDING, failureReason = null))
+        if (canStartRecording()) {
+            set(state.copy(screen = WatchUiState.Screen.RECORDING))
         }
     }
 
-    /** The completed WAV uploads automatically (Stop -> auto-upload). */
+    /** Stop uploads automatically but immediately returns the visible screen to Ready. */
     fun uploadStarted() {
         if (state.screen == WatchUiState.Screen.RECORDING) {
-            set(state.copy(screen = WatchUiState.Screen.READY, overlay = WatchUiState.Overlay.UPLOADING))
+            set(state.copy(screen = WatchUiState.Screen.READY, isUploading = true))
         }
     }
 
     /** Cancel pressed on the recording screen: stop and discard, never upload. */
     fun cancelPressed() {
         if (state.screen == WatchUiState.Screen.RECORDING) {
-            set(state.copy(screen = WatchUiState.Screen.READY, overlay = WatchUiState.Overlay.NONE))
+            set(state.copy(screen = WatchUiState.Screen.READY))
         }
     }
 
-    fun uploadFailed(reason: String) {
-        if (state.overlay == WatchUiState.Overlay.UPLOADING) {
-            set(
-                state.copy(
-                    overlay = WatchUiState.Overlay.UPLOAD_FAILED,
-                    pendingUpload = true,
-                    failureReason = reason,
-                ),
-            )
-        }
-    }
-
-    /** Retry re-uploads the SAME retained WAV — no re-record, no discard.
-     *  Reachable both from the failure overlay and from the Pending-ready badge
-     *  (Z3 Repair 2 必修 2: Later must not strand the retained WAV). */
-    fun retryPressed() {
-        val fromFailure = state.overlay == WatchUiState.Overlay.UPLOAD_FAILED
-        val fromPendingReady = state.overlay == WatchUiState.Overlay.NONE &&
-            state.pendingUpload &&
-            state.screen == WatchUiState.Screen.READY
-        if (fromFailure || fromPendingReady) {
-            set(state.copy(overlay = WatchUiState.Overlay.UPLOADING, failureReason = null))
-        }
-    }
-
-    /** Later: back to Ready, keeping the obvious Pending-upload badge. */
-    fun laterPressed() {
-        if (state.overlay == WatchUiState.Overlay.UPLOAD_FAILED) {
-            set(state.copy(overlay = WatchUiState.Overlay.NONE))
-        }
-    }
-
-    fun uploadSucceeded() {
-        if (state.overlay == WatchUiState.Overlay.UPLOADING) {
-            set(
-                state.copy(
-                    overlay = WatchUiState.Overlay.UPLOADED,
-                    pendingUpload = false,
-                    failureReason = null,
-                ),
-            )
-        }
-    }
-
-    /** The brief "Uploaded to PC" confirmation auto-returns to Ready. */
-    fun uploadedDismissed() {
-        if (state.overlay == WatchUiState.Overlay.UPLOADED) {
-            set(state.copy(overlay = WatchUiState.Overlay.NONE))
+    /** Both success and failure finish with the same silent Ready state. */
+    fun uploadFinished() {
+        if (state.isUploading) {
+            set(state.copy(isUploading = false))
         }
     }
 }
 
 /**
  * ViewModel owning the Delivery 1A recording/transport lifecycle plus the
- * 0.2.0-dev.2 UI state machine. The HTTP sender is created through
+ * 0.2.0-dev.3 UI state machine. The HTTP sender is created through
  * [Transport.sender]; in release builds that returns null and sending fails
- * closed. Stop always auto-uploads the completed WAV; a failure retains it
- * (Retry/Later) and a new recording requires an explicit discard first.
+ * closed. Stop auto-uploads the completed WAV silently; either HTTP result
+ * clears it and makes the Watch recordable again.
  */
 class RecordingViewModel(
     private val settings: SettingsStore,
@@ -215,6 +156,14 @@ class RecordingViewModel(
     private val machine = WatchUiStateMachine()
     private val _ui = MutableStateFlow(machine.state)
     val ui: StateFlow<WatchUiState> = _ui.asStateFlow()
+
+    init {
+        // dev.3 startup rule: a valid saved IP/port/token starts directly on
+        // Ready; first install or missing/invalid configuration starts on Config.
+        uiEvent {
+            it.startupWith(settings.isValidDestination() && settings.hasValidToken())
+        }
+    }
 
     private fun syncUi() {
         _ui.value = machine.state
@@ -242,7 +191,12 @@ class RecordingViewModel(
         _canSend.value = session.canSend()
     }
 
-    /** Verifies 16 kHz capability and moves to READY. */
+    /**
+     * Startup rule (dev.3): a valid saved IP/port/token starts directly on
+     * Ready; first install or missing/invalid configuration starts on Config.
+     * Decided in the constructor init block; this method only verifies the
+     * 16 kHz capture capability.
+     */
     fun prepare() {
         val result = capture.verifySupported()
         when (result) {
@@ -307,36 +261,14 @@ class RecordingViewModel(
         }
     }
 
-    /**
-     * Record button entry point. A retained WAV from a failed upload is never
-     * silently overwritten: the UI state machine raises the explicit discard
-     * prompt instead.
-     */
-    fun recordButtonPressed() {
-        if (machine.recordNeedsDiscardConfirmation()) {
-            uiEvent(WatchUiStateMachine::showDiscardPrompt)
-            return
-        }
-        startRecording()
-    }
-
-    /** User confirmed: drop the retained WAV, then start the new recording. */
-    fun discardConfirmed() {
-        uiEvent(WatchUiStateMachine::pendingDiscarded)
-        session.reset()
-        prepare()
-        syncState()
-        startRecording()
-    }
-
-    fun discardPromptDismissed() {
-        uiEvent(WatchUiStateMachine::dismissDiscardPrompt)
-    }
+    /** Ready is visible during upload, but the state-machine latch makes this a no-op. */
+    fun recordButtonPressed() = startRecording()
 
     private val requestLatch = RecordingRequestLatch()
 
     /** Starts recording on a dedicated I/O coroutine. */
     fun startRecording(maxDurationSec: Int = 15) {
+        if (!machine.canStartRecording()) return
         prepare()
         if (session.state != RecordingSession.State.READY) return
         session.startRecording()
@@ -413,22 +345,24 @@ class RecordingViewModel(
     @Volatile
     private var recordingActive = false
 
-    /** Sends the retained WAV; retryable without re-recording after failure. */
+    /** Sends one completed WAV. There is no user-visible upload result or retry path. */
     fun send() {
         if (!session.canSend()) return
-        val client = clientFactory()
-        if (client == null) {
-            session.transportFailed("cleartext HTTP sender is unavailable in this build")
-            syncState()
-            uiEvent { it.uploadFailed("sender unavailable") }
-            vibrate(RecordingSession.State.FAILURE)
-            return
-        }
         session.beginUpload()
         syncState()
         uiEvent(WatchUiStateMachine::uploadStarted)
+        val client = clientFactory()
+        if (client == null) {
+            session.transportFailed("cleartext HTTP sender is unavailable in this build")
+            finishSilentUpload()
+            return
+        }
+        val wav = session.wavBytes
+        if (wav == null) {
+            finishSilentUpload()
+            return
+        }
         viewModelScope.launch {
-            val wav = session.wavBytes ?: return@launch
             val result = withContext(Dispatchers.IO) {
                 val dest = DestinationValidator.validate(
                     settings.receiverIp,
@@ -444,38 +378,21 @@ class RecordingViewModel(
             when (result) {
                 is TransportClient.UploadResult.Success -> {
                     session.transportSucceeded()
-                    syncState()
-                    uiEvent(WatchUiStateMachine::uploadSucceeded)
-                    vibrate(RecordingSession.State.TRANSPORT_SUCCESS)
-                    // Brief transport-only confirmation, then back to Ready.
-                    viewModelScope.launch {
-                        delay(UPLOADED_BRIEF_MS)
-                        uiEvent(WatchUiStateMachine::uploadedDismissed)
-                    }
                 }
                 is TransportClient.UploadResult.Failure -> {
                     session.transportFailed(result.reason)
-                    syncState()
-                    uiEvent { it.uploadFailed(result.reason) }
-                    vibrate(RecordingSession.State.FAILURE)
                 }
             }
+            finishSilentUpload()
         }
     }
 
-    /** Retry after failure: uploads the SAME retained WAV, never re-records. */
-    fun retryUpload() {
-        uiEvent(WatchUiStateMachine::retryPressed)
-        send()
-    }
-
-    /** Later: back to Ready with the obvious Pending-upload badge. */
-    fun laterPressed() {
-        uiEvent(WatchUiStateMachine::laterPressed)
-    }
-
-    fun uploadedBriefDismissed() {
-        uiEvent(WatchUiStateMachine::uploadedDismissed)
+    /** Clears audio after either HTTP result, then revalidates capture for the next round. */
+    private fun finishSilentUpload() {
+        resetSessionAfterSilentUpload(session)
+        prepare()
+        syncState()
+        uiEvent(WatchUiStateMachine::uploadFinished)
     }
 
     fun reset() {
@@ -484,13 +401,7 @@ class RecordingViewModel(
     }
 
     private fun vibrate(forState: RecordingSession.State) {
-        // Short vibration feedback for recording start/stop and upload success/failure.
-        val pattern = when (forState) {
-            RecordingSession.State.RECORDING -> longArrayOf(0, 60)
-            RecordingSession.State.RECORDED -> longArrayOf(0, 40, 60, 40)
-            RecordingSession.State.TRANSPORT_SUCCESS -> longArrayOf(0, 30, 40, 30, 40, 30)
-            else -> longArrayOf(0, 120)
-        }
+        val pattern = recordingHapticPattern(forState) ?: return
         // Vibrator is resolved lazily by the UI host (needs Context); see MainActivity.
         onVibrate?.invoke(pattern)
     }
@@ -504,10 +415,19 @@ class RecordingViewModel(
             RecordingViewModel(settings) as T
     }
 
-    companion object {
-        /** How long the brief "Uploaded to PC" confirmation stays visible. */
-        const val UPLOADED_BRIEF_MS = 2_000L
-    }
+}
+
+/** Product-level cleanup: the Watch never retains audio for a retry. */
+internal fun resetSessionAfterSilentUpload(session: RecordingSession) {
+    session.reset()
+    session.toReady()
+}
+
+/** Start and stop retain simple haptics; transport outcomes are intentionally silent. */
+fun recordingHapticPattern(forState: RecordingSession.State): LongArray? = when (forState) {
+    RecordingSession.State.RECORDING -> longArrayOf(0, 60)
+    RecordingSession.State.RECORDED -> longArrayOf(0, 40, 60, 40)
+    else -> null
 }
 
 /** Vibrates using the modern VibratorManager API (API 31+; minSdk 30 fallback below). */

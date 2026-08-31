@@ -11,8 +11,8 @@ android {
     defaultConfig {
         applicationId = "com.sayit.watch.debug"
         // Development candidate, not a release.
-        versionCode = 2
-        versionName = "0.2.0-dev.2"
+        versionCode = 3
+        versionName = "0.2.0-dev.3"
         minSdk = 30
         targetSdk = 34
     }

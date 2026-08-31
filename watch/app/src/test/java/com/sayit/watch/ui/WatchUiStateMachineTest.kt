@@ -1,203 +1,125 @@
 package com.sayit.watch.ui
 
+import com.sayit.watch.recording.RecordingSession
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * Unit tests for the 0.2.0-dev.2 UI state machine
- * (docs/WATCH-UI-Z-HANDOFF.md): Ready -> Recording -> Stop -> Uploading ->
- * Success/Failure; Retry, Later, Pending upload, and the explicit discard rule.
- */
+/** Minimal dev.3 Watch flow: Config, Ready and Recording only. */
 class WatchUiStateMachineTest {
 
-    private fun machine(): WatchUiStateMachine {
-        val m = WatchUiStateMachine()
-        m.settingsApplied() // CONFIG -> READY
-        return m
-    }
+    private fun readyMachine(): WatchUiStateMachine = WatchUiStateMachine().also { it.settingsApplied() }
 
     @Test
     fun `save and apply moves from config to ready`() {
-        val m = WatchUiStateMachine()
-        assertEquals(WatchUiState.Screen.CONFIG, m.state.screen)
-        m.settingsApplied()
-        assertEquals(WatchUiState.Screen.READY, m.state.screen)
-        assertNull(m.state.transportAvailable)
+        val machine = WatchUiStateMachine()
+        assertEquals(WatchUiState.Screen.CONFIG, machine.state.screen)
+        machine.settingsApplied()
+        assertEquals(WatchUiState.Screen.READY, machine.state.screen)
+        assertNull(machine.state.transportAvailable)
     }
 
     @Test
-    fun `ready to recording to stop auto-uploads then success returns to ready`() {
-        val m = machine()
-        m.recordingStarted()
-        assertEquals(WatchUiState.Screen.RECORDING, m.state.screen)
-        assertTrue(m.state.keepScreenOn)
-
-        m.uploadStarted()
-        assertEquals(WatchUiState.Overlay.UPLOADING, m.state.overlay)
-        assertEquals(WatchUiState.Screen.READY, m.state.screen)
-        assertTrue(m.state.keepScreenOn)
-
-        m.uploadSucceeded()
-        assertEquals(WatchUiState.Overlay.UPLOADED, m.state.overlay)
-        assertFalse(m.state.pendingUpload)
-
-        m.uploadedDismissed()
-        assertEquals(WatchUiState.Overlay.NONE, m.state.overlay)
-        assertFalse(m.state.keepScreenOn)
+    fun `valid saved config starts directly on ready`() {
+        val machine = WatchUiStateMachine()
+        machine.startupWith(configValid = true)
+        assertEquals(WatchUiState.Screen.READY, machine.state.screen)
+        assertFalse(machine.state.isUploading)
     }
 
     @Test
-    fun `upload failure retains the wav as pending upload with a reason`() {
-        val m = machine()
-        m.recordingStarted()
-        m.uploadStarted()
-        m.uploadFailed("HTTP 409 (PC busy)")
-
-        assertEquals(WatchUiState.Overlay.UPLOAD_FAILED, m.state.overlay)
-        assertTrue(m.state.pendingUpload)
-        assertEquals("HTTP 409 (PC busy)", m.state.failureReason)
+    fun `invalid or missing config starts on config and stays there`() {
+        val machine = WatchUiStateMachine()
+        machine.startupWith(configValid = false)
+        assertEquals(WatchUiState.Screen.CONFIG, machine.state.screen)
+        // A later valid save moves to Ready.
+        machine.settingsApplied()
+        assertEquals(WatchUiState.Screen.READY, machine.state.screen)
     }
 
     @Test
-    fun `retry re-uploads the same wav without re-recording or discarding`() {
-        val m = machine()
-        m.recordingStarted()
-        m.uploadStarted()
-        m.uploadFailed("network unreachable")
-
-        m.retryPressed()
-        assertEquals(WatchUiState.Overlay.UPLOADING, m.state.overlay)
-        assertTrue("the retained WAV must stay pending during retry", m.state.pendingUpload)
-
-        m.uploadFailed("network unreachable again")
-        assertEquals(WatchUiState.Overlay.UPLOAD_FAILED, m.state.overlay)
-        assertTrue(m.state.pendingUpload)
+    fun `startup decision is idempotent and does not move a recording screen`() {
+        val machine = WatchUiStateMachine()
+        machine.startupWith(configValid = true)
+        assertEquals(WatchUiState.Screen.READY, machine.state.screen)
+        machine.startupWith(configValid = false)
+        // Already on Ready: invalid startup signal must not push back to Config.
+        assertEquals(WatchUiState.Screen.READY, machine.state.screen)
     }
 
     @Test
-    fun `later returns to ready with the obvious pending upload badge`() {
-        val m = machine()
-        m.recordingStarted()
-        m.uploadStarted()
-        m.uploadFailed("network unreachable")
+    fun `stop starts silent upload and immediately returns the visible screen to ready`() {
+        val machine = readyMachine()
+        machine.recordingStarted()
+        machine.uploadStarted()
 
-        m.laterPressed()
-        assertEquals(WatchUiState.Overlay.NONE, m.state.overlay)
-        assertEquals(WatchUiState.Screen.READY, m.state.screen)
-        assertTrue(m.state.showsPendingUploadBadge)
-        assertFalse(m.state.keepScreenOn)
+        assertEquals(WatchUiState.Screen.READY, machine.state.screen)
+        assertTrue(machine.state.isUploading)
+        assertTrue(machine.state.keepScreenOn)
     }
 
     @Test
-    fun `a new recording with a pending wav requires the explicit discard prompt`() {
-        val m = machine()
-        m.recordingStarted()
-        m.uploadStarted()
-        m.uploadFailed("network unreachable")
-        m.laterPressed()
+    fun `success and failure share the same silent completion state`() {
+        repeat(2) {
+            val machine = readyMachine()
+            machine.recordingStarted()
+            machine.uploadStarted()
+            machine.uploadFinished()
 
-        // Record must NOT silently overwrite the retained WAV.
-        assertTrue(m.recordNeedsDiscardConfirmation())
-        m.showDiscardPrompt()
-        assertTrue(m.state.discardPrompt)
-
-        // Keep it: prompt closes, WAV stays pending, still no recording.
-        m.dismissDiscardPrompt()
-        assertFalse(m.state.discardPrompt)
-        assertTrue(m.state.pendingUpload)
-        m.recordingStarted()
-        assertEquals("recording blocked while pending", WatchUiState.Screen.READY, m.state.screen)
-
-        // Discard & record: the explicit decision clears the latch and records.
-        m.showDiscardPrompt()
-        m.pendingDiscarded()
-        assertFalse(m.state.pendingUpload)
-        m.recordingStarted()
-        assertEquals(WatchUiState.Screen.RECORDING, m.state.screen)
+            assertEquals(WatchUiState.Screen.READY, machine.state.screen)
+            assertFalse(machine.state.isUploading)
+            assertFalse(machine.state.keepScreenOn)
+            assertTrue(machine.canStartRecording())
+        }
     }
 
     @Test
-    fun `cancel on the recording screen discards without upload`() {
-        val m = machine()
-        m.recordingStarted()
-        m.cancelPressed()
+    fun `record is a no op during silent upload and works when upload finishes`() {
+        val machine = readyMachine()
+        machine.recordingStarted()
+        machine.uploadStarted()
+        machine.recordingStarted()
 
-        assertEquals(WatchUiState.Screen.READY, m.state.screen)
-        assertEquals(WatchUiState.Overlay.NONE, m.state.overlay)
-        assertFalse(m.state.pendingUpload)
+        assertEquals(WatchUiState.Screen.READY, machine.state.screen)
+        assertTrue(machine.state.isUploading)
+
+        machine.uploadFinished()
+        machine.recordingStarted()
+        assertEquals(WatchUiState.Screen.RECORDING, machine.state.screen)
     }
 
     @Test
-    fun `failure then later then retry from pending-ready reaches uploading with the same bytes`() {
-        // Z3 Repair 2 必修 2: Later must not strand the retained WAV — the
-        // Pending-ready state exposes a reachable Retry. The session is driven in
-        // lockstep (exactly as the ViewModel does) so the uploaded bytes can be
-        // asserted against the original WAV.
-        val m = machine()
-        val session = com.sayit.watch.recording.RecordingSession()
-        session.toReady()
+    fun `silent upload cleanup removes wav after either transport result`() {
+        fun uploadingSession(): RecordingSession = RecordingSession().also {
+            it.toReady()
+            it.startRecording()
+            it.recordingCompleted(4, byteArrayOf(1, 2, 3, 4))
+            it.beginUpload()
+        }
 
-        m.recordingStarted()
-        session.startRecording()
-        val originalWav = byteArrayOf(7, 5, 3, 1, 9, 8, 2, 6)
-        session.recordingCompleted(samples = 4, wav = originalWav)
+        val success = uploadingSession()
+        success.transportSucceeded()
+        resetSessionAfterSilentUpload(success)
+        assertEquals(RecordingSession.State.READY, success.state)
+        assertNull(success.wavBytes)
+        assertFalse(success.canSend())
 
-        m.uploadStarted()
-        session.beginUpload()
-        session.transportFailed("HTTP 409 (PC busy)")
-        m.uploadFailed("HTTP 409 (PC busy)")
-        assertEquals(WatchUiState.Overlay.UPLOAD_FAILED, m.state.overlay)
-
-        m.laterPressed()
-        assertEquals(WatchUiState.Overlay.NONE, m.state.overlay)
-        assertTrue(m.state.showsPendingUploadBadge)
-
-        // Retry from Pending-ready: reachable, and the machine accepts it.
-        m.retryPressed()
-        assertEquals(WatchUiState.Overlay.UPLOADING, m.state.overlay)
-        // The retried upload consumes the SAME retained bytes.
-        session.beginUpload()
-        org.junit.Assert.assertArrayEquals(originalWav, session.wavBytes)
-        session.transportSucceeded()
-        m.uploadSucceeded()
-        assertEquals(WatchUiState.Overlay.UPLOADED, m.state.overlay)
-        assertFalse(m.state.pendingUpload)
+        val failure = uploadingSession()
+        failure.transportFailed("network unreachable")
+        resetSessionAfterSilentUpload(failure)
+        assertEquals(RecordingSession.State.READY, failure.state)
+        assertNull(failure.wavBytes)
+        assertFalse(failure.canSend())
     }
 
     @Test
-    fun `retry is not offered without a pending upload`() {
-        val m = machine()
-        // No failure, no pending WAV: retry has nothing to send and is a no-op.
-        m.retryPressed()
-        assertEquals(WatchUiState.Overlay.NONE, m.state.overlay)
-        assertFalse(m.state.pendingUpload)
-    }
-
-    @Test
-    fun `health check only records transport availability`() {
-        val m = machine()
-        m.healthChecked(true)
-        assertEquals(true, m.state.transportAvailable)
-        m.healthChecked(false)
-        assertEquals(false, m.state.transportAvailable)
-        // Transport availability says nothing about Provider/ASR readiness — the
-        // wording stays transport-only.
-        assertEquals(false, m.state.transportAvailable)
-    }
-
-    @Test
-    fun `a success clears the pending latch so no discard is required afterwards`() {
-        val m = machine()
-        m.recordingStarted()
-        m.uploadStarted()
-        m.uploadSucceeded()
-        m.uploadedDismissed()
-
-        assertFalse(m.recordNeedsDiscardConfirmation())
-        m.recordingStarted()
-        assertEquals(WatchUiState.Screen.RECORDING, m.state.screen)
+    fun `only recording start and stop retain haptics`() {
+        assertArrayEquals(longArrayOf(0, 60), recordingHapticPattern(RecordingSession.State.RECORDING))
+        assertArrayEquals(longArrayOf(0, 40, 60, 40), recordingHapticPattern(RecordingSession.State.RECORDED))
+        assertNull(recordingHapticPattern(RecordingSession.State.TRANSPORT_SUCCESS))
+        assertNull(recordingHapticPattern(RecordingSession.State.FAILURE))
     }
 }

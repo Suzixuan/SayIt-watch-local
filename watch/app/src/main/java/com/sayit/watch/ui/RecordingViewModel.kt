@@ -354,6 +354,9 @@ class RecordingViewModel(
         val client = clientFactory()
         if (client == null) {
             session.transportFailed("cleartext HTTP sender is unavailable in this build")
+            // A failed send means transport is not actually available — reflect it
+            // instead of leaving the Ready state showing "available".
+            uiEvent { it.healthChecked(false) }
             finishSilentUpload()
             return
         }
@@ -381,6 +384,9 @@ class RecordingViewModel(
                 }
                 is TransportClient.UploadResult.Failure -> {
                     session.transportFailed(result.reason)
+                    // Failed upload means transport is not actually available — reflect it
+                    // instead of leaving the Ready state showing "available".
+                    uiEvent { it.healthChecked(false) }
                 }
             }
             finishSilentUpload()

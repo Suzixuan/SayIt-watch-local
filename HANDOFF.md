@@ -400,3 +400,11 @@ Verification (commands, exit codes):
 - `git diff --check` clean; candidate.2 SHA256SUMS recomputed and verified.
 - Real-device screenshots (Galaxy Watch 7 SM-L310, Android 16/API 36): Config (fresh install, missing config), Ready (large blue Mic), Recording (live `mm:ss`, red Stop, Cancel) — session paths `C:\Users\suzix\toolchain\dev3-config.png`, `dev3-ready.png`, `dev3-recording.png`; OCR-verified with no `●/■` buttons and no upload/success/failure/pending/retry screens. PC `bridge_timeout` is intentionally left to a later independent task per the handoff; not re-attempted here.
 - Allowed-scope check: only `RecordingScreen.kt`, `RecordingViewModel.kt`, `strings.xml`, directly-corresponding tests, `build.gradle.kts` (versionCode 3), candidate.1/2 design dirs, and this doc updated; TransportClient/Receiver/PC bridge/ASR/Provider/History/Paste untouched; the previously committed NOT-VERIFIED report is untouched.
+
+## Delivery 1B single-flow closure and post-flow hardening (2026-08-31)
+
+- Commit `412f1da` fixes the real `bridge_timeout` root cause: `ReceiverServer` snapshots `EVENT_SINK` at construction, so Receiver startup now occurs inside Tauri `.setup()` strictly after the real WebView sink is registered. PC local POST returned 201 and a real Galaxy Watch recording reached existing ASR and inserted text into the selected input target.
+- Post-flow hardening marks Watch transport unavailable after any silent upload failure instead of retaining a stale available status, and adds a direct source-order regression that matches the concrete `set_event_sink(...)` and `watch_receiver::start()` calls.
+- PM light review: client 370/370 and production build passed; Watch 75/75, lint and Debug build passed on the then-current tree; the current Rust test artifact ran 158/0/4. PM fresh Rust compilation still hit the external `transcribe-cpp-sys` MSBuild FTK1011 cache issue, so D's fresh Cargo build remains worker evidence.
+- User will gather the formal ten consecutive runs and latency statistics during normal use rather than a dedicated session. Core flow is accepted for observation, not release/tag/deploy.
+- The later white-dial UI experiment remains unaccepted with known visual/stop-interaction risks and is isolated on `codex/wip-watch-dial-ui`.

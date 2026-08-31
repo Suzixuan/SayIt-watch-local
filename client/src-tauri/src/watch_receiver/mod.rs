@@ -83,4 +83,28 @@ mod tests {
             "mod watch_receiver must be guarded by #[cfg(debug_assertions)]"
         );
     }
+
+    #[test]
+    fn event_sink_registered_before_receiver_start() {
+        // Regression guard for the bridge_timeout defect: the receiver snapshots
+        // the global EVENT_SINK at construction, so if `watch_receiver::start`
+        // runs before `set_event_sink` the server is wired to the no-op sink and
+        // every admission event is silently dropped (the WebView never sees
+        // watch://admission-request -> 409 bridge_timeout). The source order must
+        // keep set_event_sink strictly before watch_receiver::start.
+        let main_src = fs::read_to_string("src/main.rs")
+            .expect("main.rs must exist next to the watch_receiver module");
+        // Match the concrete calls, not explanatory comments containing the same
+        // symbol names; otherwise reversing the calls could leave this test green.
+        let sink_pos = main_src
+            .find("watch_receiver::server::set_event_sink(std::sync::Arc::new(")
+            .expect("main.rs must register the concrete event sink");
+        let start_pos = main_src
+            .find("match watch_receiver::start()")
+            .expect("main.rs must start the receiver from setup");
+        assert!(
+            sink_pos < start_pos,
+            "set_event_sink must be registered BEFORE watch_receiver::start (otherwise the receiver snaps the no-op sink -> every admission event is dropped -> 409 bridge_timeout)"
+        );
+    }
 }

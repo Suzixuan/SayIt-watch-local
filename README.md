@@ -70,6 +70,24 @@ Galaxy Watch 7 录音入口。
 
 `Galaxy Watch 7 → Wi-Fi → Windows SayIt → existing ASR → History → 当前输入框`
 
+### Watch 上实际长什么样
+
+下面不是效果图，是 Galaxy Watch 7 上真实运行的 dev.3 界面。
+
+<div align="center">
+
+<img src="docs/images/readme/watch/ready.png" width="320" alt="Galaxy Watch 7 上的 SayIt Ready 页面：大号蓝色麦克风按钮">
+&nbsp;&nbsp;
+<img src="docs/images/readme/watch/recording.png" width="320" alt="Galaxy Watch 7 上的 SayIt Recording 页面：实时计时、红色结束录音按钮和取消操作">
+
+*左：Ready，点中央麦克风就开始。右：Recording，时间按真实采样数更新，说完点“结束录音”。*
+
+</div>
+
+我最后保留的就是这两个日常页面：Ready 和 Recording。Config 只在第一次配置、配置失效
+或主动点设置时出现；正常使用不需要每次重新填地址。上传过程也不额外弹“成功/失败”页面，
+因为 Watch 无法替电脑证明 ASR 和文字插入真的完成——最终还是看你刚才选中的输入框有没有字。
+
 ### 这个仓库适合谁
 
 - 已经在 Windows 上使用 SayIt，又想把 Galaxy Watch 当成临时麦克风的人。

@@ -24,12 +24,65 @@ Open-source voice typing for Windows. Press a shortcut and speak—SayIt transcr
 
 </div>
 
-> [!IMPORTANT]
-> This private working fork is currently limited to **SayIt Watch Transport Delivery 1A**.
-> Read [`HANDOFF.md`](HANDOFF.md), [`PROJECT_PROGRESS.md`](PROJECT_PROGRESS.md), and
-> [`docs/DELIVERY-1A-D-TASK.md`](docs/DELIVERY-1A-D-TASK.md) before changing code.
-> Delivery 1B is locked until a real Galaxy Watch 7 recording has been received and
-> `received_watch.wav` passes PM manual playback acceptance.
+## 我为什么折腾这个版本
+
+先把话说清楚：**SayIt 不是我从零写的软件。**
+
+它来自开源项目 [`crosswk/SayIt`](https://github.com/crosswk/SayIt)，使用
+[AGPL-3.0](./LICENSE) 许可证。原项目的名字、主体功能、Windows 客户端、语音识别、
+History、AI 整理和文字插入能力，都属于原项目及其贡献者。这个仓库只是我下载源码后做的
+**本地自用分支**：保留上游归属，在它已经能用的基础上，补了一些本地安全修复和
+Galaxy Watch 7 录音入口。
+
+事情的起因其实很简单。
+
+平时用 AI，最烦的往往不是“不会想”，而是要把脑子里的话一点点敲进输入框。电脑前不一定
+总有顺手的麦克风，手机拿起来说又要切设备、复制、粘贴。跑着跑着，需求很容易越做越复杂：
+配对、发现、Streaming、成功页、失败页、重试页……最后回头一看，我真正想要的只有一句话：
+
+> **手表录一句话，通过 Wi-Fi 交给电脑上的 SayIt，然后文字出现在我已经点好的输入框里。**
+
+所以这个版本现在刻意做得很克制：手表只负责开始录音、结束录音和把整段 WAV 发给电脑；
+识别、History 和文字插入继续走 SayIt 原来的链路。手表不冒充电脑端告诉你“识别成功”——
+输入框里出现文字，才是真的成功。没出现，就是没成功。别为了看起来功能多，再给自己增加
+一堆没有必要的状态页面。
+
+### 最简单的用法
+
+如果你只需要普通的 Windows 语音输入，建议直接使用上游 SayIt：
+
+1. 从 [`crosswk/SayIt Releases`](https://github.com/crosswk/SayIt/releases/latest) 下载并安装。
+2. 在 SayIt 里选择本地或云端语音引擎；想保留原话，就关闭 AI 整理。
+3. 先点击电脑上准备输入文字的位置。
+4. 按 SayIt 的录音快捷键，说完结束，文字会插入当前输入框。
+
+如果你想试这个仓库的 Galaxy Watch 7 入口：
+
+1. Windows 端从源码启动这个 Debug 版本；Watch Receiver 只绑定你明确指定的局域网地址。
+2. 让电脑和手表连接同一个可信 Wi-Fi，在手表 Config 中填写电脑 IP、端口和本机生成的
+   Dev Token。不要把 Token 提交到 GitHub，也不要发给别人。
+3. 配置有效后，手表平时直接进入 Ready；点设置时才回 Config。
+4. 在电脑上先点好 ChatGPT、Codex、编辑器或其他目标输入框。
+5. 点手表中央麦克风开始，说完点 Stop。手表静默上传并回到 Ready；最终只看电脑输入框
+   是否出现完整文字。
+
+实际链路就是：
+
+`Galaxy Watch 7 → Wi-Fi → Windows SayIt → existing ASR → History → 当前输入框`
+
+### 这个仓库适合谁
+
+- 已经在 Windows 上使用 SayIt，又想把 Galaxy Watch 当成临时麦克风的人。
+- 在意隐私，希望自己掌握局域网地址、模型和 Provider 配置的人。
+- 能接受目前 Watch 部分仍是开发版，需要自己构建、安装和配置的人。
+
+如果你只是想找一个装完就用的语音输入软件，请优先选择上游正式版。这个 Watch 分支目前不是
+官方发行版，也不是公开互联网服务：没有正式配对、自动发现、后台持续录音或生产级 Release
+传输。Debug 下的局域网 HTTP 只用于验证核心闭环，Release 默认不开放这条明文链路。
+
+开发或接手前，请先阅读 [`HANDOFF.md`](HANDOFF.md) 和
+[`PROJECT_PROGRESS.md`](PROJECT_PROGRESS.md)。这里记录的是这个本地分支真实做过什么、
+什么已经验证、什么还只是实验；聊天里说“完成了”，不能代替源码、测试和真机证据。
 
 ## Why SayIt?
 

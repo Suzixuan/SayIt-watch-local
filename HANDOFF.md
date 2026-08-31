@@ -371,3 +371,16 @@ Base: PM task commit `3de3aaa04bd1e5d0dbade3c53a6effabe0d62bde`; branch `codex/r
 - candidate.4 preview geometry self-check: all 7 previews pass (no clipped text, no control outside the round safe area); overlay previews verified to contain no underlying Ready text; SHA256SUMS re-verified (all OK).
 
 Remaining risks: previews remain hand-authored layout renders (non-photographic, as declared in README); real-device visual/interaction closure and the ten-run acceptance stay locked; PM Cargo re-run may still hit the external `transcribe-cpp-sys` FTK1011 cache issue on the PM host.
+
+## Delivery 1B Galaxy Watch 7 device closure — NOT VERIFIED (2026-08-31)
+
+Attempted per `docs/DELIVERY-1B-D-DEVICE-ACCEPTANCE.md`; **result NOT VERIFIED**. Full report: `docs/DELIVERY-1B-D-DEVICE-ACCEPTANCE-RESULT.md`.
+
+Verified ready on device:
+- Watch Galaxy Watch 7 SM-L310, Android 16 / API 36 (480×480, 226dp). Config page (IP `192.168.12.144`, port `18099`, masked 64-hex token), Ready page (transport line, Check / Refresh chip, Settings, Record circle, status line), and the opaque Upload-failed overlay all render correctly; recording → network send → receiver request → 409 WAV retention → Retry-without-re-record verified on-device. Candidate.4 UI has no overlap/clipping as inspected.
+- PC: SayIt frontend renders (OCR-verified after removing a stale WebView2 data directory that had shown residual browser content); vite 1420 and receiver `192.168.12.144:18099` running; SenseVoice GGUF ASR ready (`GGUF ASR ready in ~340ms`).
+- PC local POST of a valid WAV → receiver answered `409 bridge_timeout` — reproduced identically from the Watch and from a PC self-test, so the failure is independent of the Watch path.
+
+Blocker (PC product runtime defect):
+- Receiver emits `watch://admission-request` via `app_handle.emit`; the frontend `initWatchIngress` listener (`listen('watch://admission-request')`, registered unconditionally in `RecorderOrchestrator.init()` via `App.tsx` `useEffect` → `initRecorder()`) never receives it within the 5 s admission window → `bridge_timeout` → 409. The frontend renders and the dist bundle contains the admission code; the call chain is unconditional and unprotected. Tauri event delivery itself is the suspect (event name contains `://`, emit from a background receiver thread, or WebView event-channel timing) — requires PM/dev localization. PM's Z2/Z3 evidence came from an isolated harness, never from a full real SayIt run.
+- Per the task hard boundary ("if a source change is required, stop and report only"), no product source was modified. Delivery 1B remains NOT VERIFIED; the ten-run acceptance and real-device closure stay locked.

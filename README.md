@@ -72,15 +72,16 @@ Galaxy Watch 7 录音入口。
 
 ### Watch 上实际长什么样
 
-下面不是效果图，是 Galaxy Watch 7 上真实运行的 dev.3 界面。
+下面不是效果图，是 Galaxy Watch 7 上真实运行的 0.2.0-dev.3-final 界面——白色圆表盘，
+外圈 60 根灰色分钟刻度 + 12/3/6/9 四个蓝色主刻度。
 
 <div align="center">
 
-<img src="docs/images/readme/watch/ready.png" width="320" alt="Galaxy Watch 7 上的 SayIt Ready 页面：大号蓝色麦克风按钮">
+<img src="docs/images/readme/watch/ready.png" width="320" alt="Galaxy Watch 7 上的 SayIt MIC READY 页面：白色圆表盘、居中麦克风">
 &nbsp;&nbsp;
-<img src="docs/images/readme/watch/recording.png" width="320" alt="Galaxy Watch 7 上的 SayIt Recording 页面：实时计时、红色结束录音按钮和取消操作">
+<img src="docs/images/readme/watch/recording.png" width="320" alt="Galaxy Watch 7 上的 SayIt RECORDING 页面：白色圆表盘、对称蓝色波形 + 实时计时">
 
-*左：Ready，点中央麦克风就开始。右：Recording，时间按真实采样数更新，说完点“结束录音”。*
+*左：MIC READY，点中央麦克风就开始。右：RECORDING，时间按真实采样数更新；说完静默上传并回到 Ready。*
 
 </div>
 

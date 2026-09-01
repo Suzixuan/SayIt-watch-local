@@ -66,8 +66,10 @@ pub fn parse_bind_ip(raw: &str) -> Result<Ipv4Addr, String> {
         .parse()
         .map_err(|_| "SAYIT_WATCH_BIND_IP must be a valid IPv4 address".to_string())?;
 
+    // 0.0.0.0 binds all interfaces, so a DHCP-driven LAN-IP change on the PC no
+    // longer silently breaks the Watch link. Bearer-token auth still guards it.
     if ip.is_unspecified() {
-        return Err("SAYIT_WATCH_BIND_IP must not be 0.0.0.0 (wildcard)".to_string());
+        return Ok(ip);
     }
     if ip.is_loopback() {
         return Err("SAYIT_WATCH_BIND_IP must not be loopback".to_string());
@@ -157,7 +159,6 @@ mod tests {
 
     #[test]
     fn rejects_invalid_bind_ips() {
-        assert!(parse_bind_ip("0.0.0.0").is_err());
         assert!(parse_bind_ip("127.0.0.1").is_err());
         assert!(parse_bind_ip("169.254.1.1").is_err());
         assert!(parse_bind_ip("8.8.8.8").is_err());
@@ -174,6 +175,9 @@ mod tests {
 
     #[test]
     fn accepts_rfc1918_bind_ips() {
+        // 0.0.0.0 binds all interfaces (listens on whatever address the PC has),
+        // so a DHCP LAN-IP change cannot break the Watch link.
+        assert_eq!(parse_bind_ip("0.0.0.0").unwrap(), Ipv4Addr::new(0, 0, 0, 0));
         assert_eq!(parse_bind_ip("10.0.0.1").unwrap(), Ipv4Addr::new(10, 0, 0, 1));
         assert_eq!(parse_bind_ip("172.16.0.1").unwrap(), Ipv4Addr::new(172, 16, 0, 1));
         assert_eq!(parse_bind_ip("172.31.255.255").unwrap(), Ipv4Addr::new(172, 31, 255, 255));

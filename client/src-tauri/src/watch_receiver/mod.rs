@@ -65,7 +65,15 @@ mod tests {
         // The start call lives inside `.setup()` (after the event sink is
         // registered), so the enclosing `#[cfg(debug_assertions)]` block may be
         // well over 400 characters earlier — scan back a generous window.
-        let window = &main_src[block_start.saturating_sub(4000)..block_start];
+        // Use char-boundary-safe slicing (the comment may contain multi-byte UTF-8).
+        let limit = block_start.saturating_sub(4000);
+        let win_start = main_src[..block_start]
+            .char_indices()
+            .rev()
+            .find(|(i, _)| *i <= limit)
+            .map(|(i, _)| i)
+            .unwrap_or(0);
+        let window = &main_src[win_start..block_start];
         assert!(
             window.contains("#[cfg(debug_assertions)]"),
             "watch_receiver::start must be guarded by #[cfg(debug_assertions)]"

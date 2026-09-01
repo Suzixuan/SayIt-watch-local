@@ -1228,8 +1228,28 @@ pub async fn import_config(
 
 #[tauri::command]
 pub async fn import_full(in_path: String, storage: State<'_, Storage>) -> Result<(), String> {
+    // ZIP-bomb guard: cap entry count + total decompressed bytes before reading,
+    // and cap any single entry, so a malicious backup cannot exhaust memory/disk.
+    const MAX_BACKUP_ENTRIES: usize = 10_000;
+    const MAX_BACKUP_SINGLE_BYTES: u64 = 256 * 1024 * 1024;
+    const MAX_BACKUP_TOTAL_BYTES: u64 = 512 * 1024 * 1024;
     let file = fs::File::open(&in_path).map_err(|e| format!("Failed to open file: {}", e))?;
     let mut archive = zip::ZipArchive::new(file).map_err(|e| format!("Not a valid backup archive: {}", e))?;
+    if archive.len() > MAX_BACKUP_ENTRIES {
+        return Err(format!("Backup archive has too many entries ({} > {})", archive.len(), MAX_BACKUP_ENTRIES));
+    }
+    let mut total: u64 = 0;
+    for i in 0..archive.len() {
+        let entry = archive.by_index(i).map_err(|e| e.to_string())?;
+        let size = entry.size();
+        if size > MAX_BACKUP_SINGLE_BYTES {
+            return Err(format!("A backup entry is too large ({} bytes > {})", size, MAX_BACKUP_SINGLE_BYTES));
+        }
+        total = total.saturating_add(size);
+        if total > MAX_BACKUP_TOTAL_BYTES {
+            return Err(format!("Backup archive exceeds {} bytes after decompression", MAX_BACKUP_TOTAL_BYTES));
+        }
+    }
 
     // 1. 读取并校验 backup.json
     let mut json_str = String::new();

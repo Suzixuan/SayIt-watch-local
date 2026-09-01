@@ -582,7 +582,7 @@ async def post_feedback(request: Request):
                 int(now * 1000),
             ),
         )
-    logger.info("Feedback from %s: %s", machine_id, feedback_text[:100])
+    logger.info("Feedback from %s (len=%d)", machine_id, len(feedback_text))
     return JSONResponse({"ok": True}, 200)
 
 

@@ -6,6 +6,15 @@
 config.yaml
 _MIGRATION/
 *.pem
+*.key
+*.p12
+*.pfx
+*.secret
+id_rsa*
+id_ed25519*
+.npmrc
+.pypirc
+*credentials*
 
 # ── Development-only (not for open source) ──
 dev-docs/

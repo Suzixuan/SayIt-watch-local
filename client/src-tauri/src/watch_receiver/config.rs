@@ -1,17 +1,20 @@
-//! Receiver configuration from environment variables.
+//! Receiver configuration.
 //!
-//! Required variables:
-//! - `SAYIT_WATCH_BIND_IP`: exactly one RFC1918 IPv4. `0.0.0.0`, loopback,
-//!   hostnames, IPv6, public and link-local addresses are rejected.
-//! - `SAYIT_WATCH_PORT`: integer in 1..=65535.
-//! - `SAYIT_WATCH_DEV_TOKEN`: frozen representation — exactly 64 hexadecimal
-//!   characters (32 decoded bytes = 256 bits) after trimming. The identical
-//!   rule is enforced on the Watch side (DevTokenValidator).
+//! Resolution order (fail closed only if every source is missing/invalid):
+//! 1. environment variables: `SAYIT_WATCH_BIND_IP`, `SAYIT_WATCH_PORT`,
+//!    `SAYIT_WATCH_DEV_TOKEN`;
+//! 2. a persisted config file at `%LOCALAPPDATA%\com.sayit.app\watch-receiver.config.json`;
+//! 3. bootstrap from a gitignored `.watch-dev-token` in the repo root, using
+//!    `0.0.0.0:18099` and then persisting the config file. Allowing `0.0.0.0`
+//!    (listen on every interface) plus this fallback lets a user just
+//!    double-click `sayit.exe` with no environment setup, and survive a PC
+//!    DHCP LAN-IP change.
 //!
-//! Missing or invalid configuration means the receiver does not start (fail
-//! closed). Only the bind IP/port and a token-present boolean are ever logged.
+//! Only the bind IP/port and a token-present boolean are ever logged.
 
+use std::fs;
 use std::net::Ipv4Addr;
+use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
 pub struct ReceiverConfig {
@@ -42,6 +45,82 @@ pub fn load_from_env() -> Result<ReceiverConfig, String> {
     Ok(ReceiverConfig {
         bind_ip,
         port,
+        dev_token: token.trim().to_string(),
+    })
+}
+
+/// Full resolution: env vars, then persisted config file, then a bootstrap from
+/// the repo-root `.watch-dev-token`. Lets the PC run by double-clicking the exe
+/// with no environment setup.
+pub fn load() -> Result<ReceiverConfig, String> {
+    if let Ok(cfg) = load_from_env() {
+        return Ok(cfg);
+    }
+    if let Ok(cfg) = load_from_config_file() {
+        return Ok(cfg);
+    }
+    let cfg = bootstrap_from_dev_token()?;
+    // Persist so later launches read the config file directly.
+    if let Err(e) = write_config_file(&cfg) {
+        log::warn!("watch receiver: could not persist config file: {}", e);
+    }
+    Ok(cfg)
+}
+
+fn config_file_path() -> PathBuf {
+    dirs::data_local_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("com.sayit.app")
+        .join("watch-receiver.config.json")
+}
+
+fn load_from_config_file() -> Result<ReceiverConfig, String> {
+    let path = config_file_path();
+    let txt = fs::read_to_string(&path)
+        .map_err(|_| format!("config file not found at {}", path.display()))?;
+    let v: serde_json::Value =
+        serde_json::from_str(&txt).map_err(|e| format!("invalid config JSON: {e}"))?;
+    let ip_raw = v["bind_ip"].as_str().ok_or("config missing bind_ip")?;
+    let port = v["port"].as_u64().ok_or("config missing port")?;
+    let token = v["dev_token"].as_str().ok_or("config missing dev_token")?;
+    let bind_ip = parse_bind_ip(ip_raw)?;
+    let port = parse_port(&port.to_string())?;
+    validate_token(token)?;
+    Ok(ReceiverConfig {
+        bind_ip,
+        port,
+        dev_token: token.trim().to_string(),
+    })
+}
+
+fn write_config_file(cfg: &ReceiverConfig) -> Result<(), String> {
+    let path = config_file_path();
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    let json = serde_json::json!({
+        "bind_ip": cfg.bind_ip.to_string(),
+        "port": cfg.port,
+        "dev_token": cfg.dev_token,
+    });
+    fs::write(&path, serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())
+}
+
+/// Fallback from the repo-root `.watch-dev-token` (gitignored): default
+/// `0.0.0.0:18099` so a double-clicked exe just works.
+fn bootstrap_from_dev_token() -> Result<ReceiverConfig, String> {
+    let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|p| p.parent())
+        .ok_or("cannot resolve repo root")?;
+    let token_path = repo.join(".watch-dev-token");
+    let token = fs::read_to_string(&token_path)
+        .map_err(|_| format!("SAYIT_WATCH_* env vars missing and no config/token at {}", token_path.display()))?;
+    validate_token(&token)?;
+    Ok(ReceiverConfig {
+        bind_ip: Ipv4Addr::new(0, 0, 0, 0), // listen on all interfaces
+        port: 18099,
         dev_token: token.trim().to_string(),
     })
 }

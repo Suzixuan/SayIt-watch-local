@@ -19,7 +19,7 @@ use std::sync::Arc;
 /// (receiver does not start) when configuration is missing or invalid.
 /// Never logs the token.
 pub fn start() -> Result<(), Box<dyn std::error::Error>> {
-    let cfg = Arc::new(config::load_from_env()?);
+    let cfg = Arc::new(config::load()?);
     let thread_cfg = Arc::clone(&cfg);
     std::thread::Builder::new()
         .name("watch-receiver".to_string())

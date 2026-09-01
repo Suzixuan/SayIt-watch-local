@@ -1,5 +1,6 @@
-// Prevents additional console window on Windows in release
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+// Prevents the extra console window on Windows in all builds (incl. debug), so
+// double-clicking the exe runs silently — logs go to sayit.log, not a console.
+#![cfg_attr(windows, windows_subsystem = "windows")]
 
 mod commands;
 mod error_protocol;

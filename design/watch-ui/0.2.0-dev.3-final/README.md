@@ -7,12 +7,13 @@
 
 - 版本：`0.2.0-dev.3-final`（versionCode 3）
 - 提交基线：
-  - `41a79d4` wip(watch): preserve white dial UI experiment
+  - `714ac2f` feat(watch): restore low-key Settings entry + shorten Cancel label
   - `d874395` test: harden watch transport status and startup order
-- 构建时间：`2026-08-31 16:35:42`
+  - `41a79d4` wip(watch): preserve white dial UI experiment
+- 构建时间：`2026-08-31 22:43:15`
 - APK：`watch/app/build/outputs/apk/debug/app-debug.apk`
 - **APK SHA-256**：
-  `6C292C25D76A2A5AFF2EDEB94801A60E738F5F4E5161648D919D075AB8AB8E97`
+  `D90B56957BAE546DA94520E0343BF97B349890AD8E36F58258343AAF47535DC6`
 
 ## 冻结的候选特性
 
@@ -20,8 +21,8 @@
   - 白色表盘底 `#F7F8FA`；60 根**灰色分钟刻度**（`#9AA3AE`，贴近表圈，长度为蓝色主刻度一半）；
   - 12/3/6/9 四个**蓝色主刻度**（更长更粗，`#1976E9`）；
   - 标题 `MIC READY` / `RECORDING`：灰色 `#9AA3AE`、小字号（9sp）、置于圆心上方；
-  - Ready：**线性麦克风**（深灰 72dp，居中）；
-  - Recording：**对称 11 根细蓝波形** + 计时（20sp）；
+  - Ready：**线性麦克风**（深灰 72dp，居中），麦克风下方一个**低调 8sp 灰色「设置」入口**（首次配置进 Config 用）；
+  - Recording：**对称 11 根细蓝波形** + 计时（20sp），底部动作文案为「**取消**」；
   - **无 Wi-Fi / 电池图标**，无按钮/状态栏/多余元素。
 
 ## 本轮修复（已并入基线）

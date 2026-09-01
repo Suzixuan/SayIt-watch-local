@@ -203,6 +203,8 @@ private fun ReadyScreen(viewModel: RecordingViewModel, ui: WatchUiState, hasPerm
                 Box(Modifier.size(84.dp).align(Alignment.Center).clickable { viewModel.recordButtonPressed() }, contentAlignment = Alignment.Center) {
                     Canvas(Modifier.size(72.dp)) { drawIcon(IconType.MICROPHONE, DialIcon) }
                 }
+                // Dim, low-key settings entry (needed for first-time config).
+                Text(stringResource(R.string.ready_open_config), fontSize = 8.sp, color = DialMuted, modifier = Modifier.align(Alignment.Center).offset(y = 66.dp).clickable { viewModel.openConfig() })
             }
         }
     }

@@ -342,18 +342,29 @@ pub fn create_diagnostics_zip(data: Value) -> Result<String, String> {
     zip.write_all(serde_json::to_string_pretty(&req.settings).unwrap().as_bytes())
         .map_err(|e| e.to_string())?;
 
-    // 3. 日志文件
+    // 3. 日志文件 —— 只打包脱敏摘要（大小/行数/占位），不打包原文，
+    //    避免任何潜在转录文本随诊断 ZIP 外泄。
     let log_d = log_dir();
+    let mut log_summary = std::collections::BTreeMap::new();
     for filename in &["sayit.log", "sayit.1.log", "sayit.2.log", "sayit.3.log"] {
         let path = log_d.join(filename);
-        if path.exists() {
-            if let Ok(content) = std::fs::read(&path) {
-                let zip_name = format!("logs/{}", filename);
-                zip.start_file(&zip_name, options).map_err(|e| e.to_string())?;
-                zip.write_all(&content).map_err(|e| e.to_string())?;
-            }
+        if let Ok(meta) = std::fs::metadata(&path) {
+            let size = meta.len();
+            let lines = std::fs::read_to_string(&path)
+                .map(|s| s.lines().count())
+                .unwrap_or(0);
+            log_summary.insert(*filename, serde_json::json!({
+                "bytes": size,
+                "lines": lines,
+                "content": "redacted", // 不随包外泄原始日志
+            }));
         }
     }
+    zip.start_file("logs-summary.json", options).map_err(|e| e.to_string())?;
+    zip.write_all(
+        serde_json::to_string_pretty(&log_summary).unwrap().as_bytes(),
+    )
+    .map_err(|e| e.to_string())?;
 
     // 4. 截图
     for (i, img) in req.images.iter().enumerate() {

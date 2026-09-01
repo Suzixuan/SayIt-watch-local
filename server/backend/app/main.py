@@ -166,14 +166,27 @@ app.add_middleware(
 )
 
 
+# Public /api/ endpoints that stay reachable without a token.
+_PUBLIC_API_PREFIXES = ("/api/public/", "/api/feedback", "/api/notice", "/api/desktop-updates")
+
+
 @app.middleware("http")
 async def enforce_api_token(request: Request, call_next):
-    """可选的服务端访问令牌：设置 SAYIT_API_TOKEN 后，/api/* 需携带 Bearer 令牌。
+    """服务端访问令牌。受保护的 /api/* 需携带 Bearer 令牌。
 
-    /healthz 与静态页不校验；WebSocket 在 ws_transcribe 内单独校验 query 参数。
+    安全（fail-closed）：若 SAYIT_API_TOKEN 未配置，受保护的 /api/* 一律拒绝，
+    避免"空令牌 + 0.0.0.0"导致同网段可直接调用 ASR/API。公开端点
+    （/api/public/*、feedback、notice、desktop-updates）、/healthz 与静态页不校验；
+    WebSocket 在 ws_transcribe 内单独校验 query 参数。
     """
-    token = cfg.server.api_token
-    if token and request.url.path.startswith("/api/"):
+    path = request.url.path
+    if path.startswith("/api/") and not any(
+        path.startswith(p) for p in _PUBLIC_API_PREFIXES
+    ):
+        token = cfg.server.api_token
+        if not token:
+            # No token configured => refuse protected endpoints (fail closed).
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
         auth = request.headers.get("authorization", "")
         supplied = auth.removeprefix("Bearer ").strip() if auth.lower().startswith("bearer ") else ""
         if supplied != token:
@@ -655,13 +668,19 @@ async def ws_transcribe(ws: WebSocket):
     # 若在 accept 之前 close，框架会以 HTTP 403 拒绝握手，客户端只能看到通用错误(1006)，无法区分原因。
     await ws.accept()
 
-    # 可选鉴权令牌：设置了 SAYIT_API_TOKEN 后，握手必须带 ?token=<token>
+    # 鉴权（fail-closed）：握手必须带 ?token=<token>；未配置 SAYIT_API_TOKEN 则一律拒绝，
+    # 避免"空令牌 + 0.0.0.0"让同网段直接调用转写。
     if cfg.server.api_token:
         if ws.query_params.get("token") != cfg.server.api_token:
             logger.warning("ws rejected (bad/absent token): cid=%s ip=%s", cid, ws_ip_key)
             await ws.close(4401, "unauthorized")
             reset_log_context(connection_tokens)
             return
+    else:
+        logger.warning("ws rejected (no token configured): cid=%s ip=%s", cid, ws_ip_key)
+        await ws.close(4401, "unauthorized")
+        reset_log_context(connection_tokens)
+        return
 
     # Connection limits（拒绝时不计数、也不进入下方的 try/finally）
     if _active_ws_count >= _MAX_WS_TOTAL:

@@ -58,9 +58,11 @@ Galaxy Watch 7 录音入口。
 
 如果你想试这个仓库的 Galaxy Watch 7 入口：
 
-1. Windows 端从源码启动这个 Debug 版本；Watch Receiver 只绑定你明确指定的局域网地址。
-2. 让电脑和手表连接同一个可信 Wi-Fi，在手表 Config 中填写电脑 IP、端口和本机生成的
-   Dev Token。不要把 Token 提交到 GitHub，也不要发给别人。
+1. 启动 Windows 端：直接双击构建出的 `client\src-tauri\target\debug\sayit.exe`，
+   或下载本仓库的**便携版**（GitHub Releases 里的 `v0.1.8-watchportable`）。
+   Receiver 会自动监听 `0.0.0.0:18099`，**不需要设环境变量**；电脑换局域网 IP 也不受影响。
+2. 让电脑和手表连接同一个可信 Wi-Fi，在手表 Config 中填写电脑 IP、端口 `18099` 和本机
+   生成的 Dev Token。不要把 Token 提交到 GitHub，也不要发给别人。
 3. 配置有效后，手表平时直接进入 Ready；点设置时才回 Config。
 4. 在电脑上先点好 ChatGPT、Codex、编辑器或其他目标输入框。
 5. 点手表中央麦克风开始，说完点 Stop。手表静默上传并回到 Ready；最终只看电脑输入框

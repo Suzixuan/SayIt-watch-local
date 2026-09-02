@@ -303,6 +303,26 @@ Decision: Delivery 1A **ACCEPTED**. Delivery 1B is unlocked but not started. No 
 
 Delivery 1B may modify the external-audio ingress only after the Delivery 1A acceptance gate is recorded here. It must reuse `RecorderOrchestrator`, the active `TranscriptionProvider`, existing callbacks, History, and Paste; it must not create a second ASR path.
 
+## PM status sync (2026-09-02) — security/package NO-GO
+
+D reported security hardening, GitHub security settings, a silent Windows build and a refreshed portable Release. PM independently fetched and reviewed the current state:
+
+- Before this PM documentation update, local and remote `main` matched at `032de349f0a8e929dfde995ae65b017741c8c047`; commits `83056ab` and `a7ddcac` contain the security changes, and D's submitted product tree was clean.
+- GitHub Secret Scanning, Push Protection and Dependabot security updates are enabled. `main` rejects force-push and deletion. CodeQL completed successfully for `032de34`. One Dependabot PR is open for `python-multipart`; several Rust Dependabot jobs fail because the repository pins the Windows-only toolchain string `stable-x86_64-pc-windows-msvc`, which the Linux updater cannot resolve.
+- Fresh PM client verification passes: Vitest 370/370, TypeScript/Vite production build, and `npm audit --omit=dev` with 0 vulnerabilities. Fresh Rust compilation remains blocked by the known external `transcribe-cpp-sys`/MSBuild `FTK1011` cache failure. Server pytest could not be collected in the PM shell because FastAPI is not installed; D supplied only `py_compile` evidence for the server edits.
+
+The security/package claims are not accepted yet:
+
+1. The backend now rejects protected HTTP and WebSocket routes whenever `SAYIT_API_TOKEN` is empty, even on loopback. This conflicts with the client defaults and UI copy that explicitly support `http://127.0.0.1:8000` with an empty token, so zero-config local-server behavior may be broken. The intended invariant is: loopback may be tokenless; non-loopback must fail closed without a token.
+2. The diagnostics ZIP no longer includes raw `sayit.log`, but it still calls `read_and_parse_logs()` and serializes the resulting titles into `timeline.json`. A persisted `[WS] ... final {...asr_text/llm_text...}` line can therefore still carry transcript content into the ZIP. The claimed transcript redaction is incomplete.
+3. `032de34` changes Windows builds to the GUI subsystem, but the published Release and desktop copy contain the earlier executable: Release ZIP SHA-256 `D0E483650651DB598068F40D81576C1E04529815F8AA3D8C6A24539D0488F98D`; packaged/desktop `sayit.exe` timestamp `2026-09-01 13:02:50`, SHA-256 `123FF8CB1144152119ECC4267459614C41040ABDAF1003CC4DCFC1302C4EE9F8`. The newly built target after the source change is timestamped `13:20:58`, SHA-256 `E064AE0CC0B6B69A7B46653CDFA16D08C5D1EBEBD31928066408EB2970E69A9B`. Therefore silent startup is present in source but not in the distributed/desktop artifact.
+4. Backup import now has finite entry/single-file/total bounds, but no focused regression tests were added; the accepted limits also remain large (10,000 entries, 256 MiB single, 512 MiB total). This is retained as a non-blocking hardening follow-up once the two Important defects are repaired.
+5. Receiver fallback still binds `0.0.0.0:18099`. This contradicts the older project hard boundary requiring one explicit RFC1918 address. D attributes the change to DHCP/IP-drift resilience; PM records it as an unresolved product/security exception rather than silently accepting it.
+
+The optional Wear OS Tile attempt did not compile against the tried Tiles APIs and was reverted to a clean tree. No Tile implementation is currently delivered. At status-read time, Vite `1420` and the debug Receiver `18099` were listening; Vite is development infrastructure and is not a stable packaged runtime.
+
+Decision: keep the already-pushed `main` as the factual remote state, but mark security and portable packaging **NO-GO / Repair 2 required**. Do not describe the current Release as containing `032de34`, and do not mark the optional Tile as implemented.
+
 ## Security
 
 - Development tokens are generated outside the repository and supplied through environment configuration.

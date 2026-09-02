@@ -1,6 +1,6 @@
 # SayIt Watch Transport project progress
 
-Overall: Delivery 1A accepted. Delivery 1B Provider contract is MATCH after PM acceptance of Z2; the PC-only external WAV ingress slice is unlocked. Delivery 1B real-device closure is not yet complete.
+Overall: Delivery 1A and the dev.3 Watch-to-Paste core path are accepted for normal-use observation. The ten-run gate remains deferred by the user. Security hardening is merged to `main`, but PM re-review found two Important gaps plus a stale portable binary; security/package closure is therefore not accepted. The optional Wear Tile experiment was reverted cleanly and remains deferred.
 
 | Group | # | Task | Acceptance | Status | Owner | Dependency / evidence |
 |---|---:|---|:---:|---|---|---|
@@ -14,8 +14,11 @@ Overall: Delivery 1A accepted. Delivery 1B Provider contract is MATCH after PM a
 | Delivery 1B | 7 | External WAV ingress through existing History/Paste | ☑ | 🟢 PM accepted | Colleague D | Repair 4 source/UI candidate accepted at `5de4d98`; prior Z work remains in history. Multi-generation gate, main-coroutine outcome apply, responsive UI, readable candidate.4; PM Watch 75/75, builds, client 370/370, Rust artifact 158/0/4 |
 | Experience | 7B | dev.3 minimalist Watch UI | ☑ | 🟢 PM accepted | Colleague D | Commit `516cde9`; Config/Ready/Recording only, silent one-shot upload, real-device screenshots and one real Watch→ASR→Paste closure |
 | Acceptance | 8 | Ten consecutive real end-to-end runs | ☐ | ⚪ Deferred to normal use | User | User will accumulate consecutive real-use evidence and Stop→Paste latency during normal use; no dedicated test session now |
+| Security | 9 | Repository and runtime security hardening | ☐ | 🔵 PM re-review — repair required | PM | `83056ab` + `a7ddcac` are on `main`; CodeQL succeeds and GitHub protections are enabled. Remaining blockers: zero-token loopback behavior conflicts with the documented local default; diagnostics `timeline.json` still derives titles from raw logs and can retain transcript text; wildcard Watch bind remains an unresolved product/security exception. |
+| Packaging | 10 | Self-contained silent Windows portable build and Release | ☐ | 🔵 Repair required | Colleague D | Source commit `032de34` hides the console, but desktop and Release `sayit.exe` are the older `13:02:50` artifact (`123FF8CB...9F8`); the freshly built silent target is `13:20:58` (`E064AE0C...9B`). Rebuild/repackage/readback is required. |
+| Experience | 11 | Optional Wear OS Tile card | ☐ | ⚪ Deferred | Colleague D | Initial Tiles 1.2/1.4 implementation did not compile and was reverted; current tree is clean and contains no Tile feature. This is outside the core verified flow. |
 
-Current external slice: none. Core dev.3 UI and the receiver-start ordering fix (`412f1da`) have completed one real Watch→ASR→Paste flow and are entering normal-use observation. Ten-run evidence is deferred by user choice. A separate unaccepted white-dial UI experiment is stored only on `codex/wip-watch-dial-ui`; it is not part of the accepted core branch.
+Current external slice: none. D is idle; only a background Vite dev server is running. Core dev.3 UI and the receiver-start ordering fix (`412f1da`) have completed one real Watch→ASR→Paste flow and are in normal-use observation. Ten-run evidence is deferred by user choice. The next unlocked work is a narrow security/package Repair 2; the optional Wear Tile remains deferred. A separate unaccepted white-dial UI experiment is stored only on `codex/wip-watch-dial-ui`; it is not part of the accepted core branch.
 
 Updated sequencing decision (user, 2026-08-29): colleague Z will do the Watch UI in the same task package as Z3 Repair 1, but only after the three Repair blockers pass automated verification. First real Galaxy Watch → existing SayIt → focused Windows input-box closure remains a later PM-unlocked device gate. The formal ten-run latency acceptance remains final.
 
